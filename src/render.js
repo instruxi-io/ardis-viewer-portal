@@ -1,0 +1,109 @@
+/**
+ * Renders a parsed VC JSON credential into the #credential DOM section.
+ * The credential type drives field selection and labelling.
+ * Falls back to rendering all credentialSubject fields generically.
+ */
+
+// Per-credential-type display schemas.
+// Add an entry here when a new VP joins the marketplace.
+const SCHEMAS = {
+  NPPESCredential: {
+    icon: '🏥',
+    title: 'NPI / NPPES Registration',
+    fields: ['npi', 'provider_name', 'specialty', 'practice_address', 'status'],
+    labels: {
+      npi: 'NPI Number',
+      provider_name: 'Provider Name',
+      specialty: 'Specialty',
+      practice_address: 'Practice Address',
+      status: 'License Status',
+    },
+  },
+  AHACredential: {
+    icon: '❤️',
+    title: 'AHA Membership',
+    fields: ['member_id', 'name', 'certification_level', 'valid_until'],
+    labels: {
+      member_id: 'Member ID',
+      name: 'Member Name',
+      certification_level: 'Certification Level',
+      valid_until: 'Valid Until',
+    },
+  },
+  ABMSCredential: {
+    icon: '🎓',
+    title: 'Board Certification',
+    fields: ['physician_name', 'specialty', 'certification_date', 'expiration_date'],
+    labels: {
+      physician_name: 'Physician Name',
+      specialty: 'Specialty',
+      certification_date: 'Certified',
+      expiration_date: 'Expires',
+    },
+  },
+};
+
+function fmt(val) {
+  if (!val) return '—';
+  // ISO date → readable
+  if (/^\d{4}-\d{2}-\d{2}/.test(String(val))) {
+    try { return new Date(val).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }); }
+    catch { return String(val); }
+  }
+  return String(val);
+}
+
+export function renderCredential(vc) {
+  const subject = vc.credentialSubject ?? {};
+  const types   = Array.isArray(vc.type) ? vc.type : [vc.type];
+  const credType = types.find(t => t !== 'VerifiableCredential') ?? 'VerifiableCredential';
+  const schema   = SCHEMAS[credType] ?? null;
+
+  // Title + issuer
+  const issuerName = vc.issuer?.name ?? vc.issuer ?? 'Unknown Issuer';
+  document.getElementById('cred-title').textContent  = schema?.title ?? credType.replace(/Credential$/, '') + ' Credential';
+  document.getElementById('cred-issuer').textContent = `Issued by ${issuerName}`;
+  document.querySelector('.credential-type-icon').textContent = schema?.icon ?? '📋';
+
+  // Fields
+  const fieldsEl = document.getElementById('cred-fields');
+  fieldsEl.innerHTML = '';
+
+  const fieldsToShow = schema?.fields ?? Object.keys(subject).filter(k => k !== 'id').slice(0, 8);
+  for (const key of fieldsToShow) {
+    if (!(key in subject)) continue;
+    const label = schema?.labels?.[key] ?? key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    const row = document.createElement('div');
+    row.className = 'field-row';
+    row.innerHTML = `<span class="field-label">${label}</span><span class="field-value">${fmt(subject[key])}</span>`;
+    fieldsEl.appendChild(row);
+  }
+
+  // Dates + status
+  document.getElementById('cred-issued').textContent  = fmt(vc.issuanceDate);
+  document.getElementById('cred-expires').textContent = fmt(vc.expirationDate);
+
+  const now     = new Date();
+  const expires = vc.expirationDate ? new Date(vc.expirationDate) : null;
+  const expired = expires && expires < now;
+  const statusEl = document.getElementById('cred-status');
+  statusEl.textContent = expired ? 'Expired' : 'Active';
+  statusEl.className   = `meta-value ${expired ? 'status-expired' : 'status-active'}`;
+
+  document.getElementById('credential').classList.remove('hidden');
+  document.getElementById('loading').classList.add('hidden');
+}
+
+export function showSignerAddress(address) {
+  document.getElementById('signer-address').textContent = address;
+  document.getElementById('signature-row').classList.remove('hidden');
+  document.getElementById('verification-badge').classList.remove('hidden');
+}
+
+export function showError(title, body) {
+  document.getElementById('loading').classList.add('hidden');
+  document.getElementById('credential').classList.add('hidden');
+  document.getElementById('error-title').textContent = title;
+  document.getElementById('error-body').textContent  = body;
+  document.getElementById('error').classList.remove('hidden');
+}

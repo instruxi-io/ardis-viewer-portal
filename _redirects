@@ -1,0 +1,3 @@
+# Cloudflare Pages: serve index.html for all paths so the viewer
+# works at /view, /view/anything, etc.
+/*  /index.html  200

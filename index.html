@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ardis — Verified Credential</title>
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Loading state -->
+    <div id="loading" class="center-screen">
+      <div class="spinner"></div>
+      <p class="loading-text">Loading credential…</p>
+    </div>
+
+    <!-- Error state -->
+    <div id="error" class="center-screen hidden">
+      <div class="error-icon">✕</div>
+      <h2 id="error-title">Unable to load credential</h2>
+      <p id="error-body">The link may be expired or invalid.</p>
+    </div>
+
+    <!-- Credential card -->
+    <div id="credential" class="hidden">
+      <header class="header">
+        <div class="brand">
+          <span class="brand-icon">✦</span>
+          <span class="brand-name">Ardis</span>
+        </div>
+        <div id="verification-badge" class="badge badge-verified hidden">
+          <span>✓</span> Cryptographically Verified
+        </div>
+      </header>
+
+      <main class="main">
+        <div class="card">
+          <div class="card-header">
+            <div class="credential-type-icon">🎓</div>
+            <div>
+              <h1 id="cred-title" class="cred-title">Verified Credential</h1>
+              <p id="cred-issuer" class="cred-issuer"></p>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div id="cred-fields" class="fields-grid"></div>
+
+          <div class="divider"></div>
+
+          <div class="meta-row">
+            <span class="meta-label">Issued</span>
+            <span id="cred-issued" class="meta-value">—</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">Expires</span>
+            <span id="cred-expires" class="meta-value">—</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">Status</span>
+            <span id="cred-status" class="meta-value status-active">Active</span>
+          </div>
+
+          <div id="signature-row" class="meta-row hidden">
+            <span class="meta-label">Share authorised by</span>
+            <span id="signer-address" class="meta-value mono"></span>
+          </div>
+        </div>
+
+        <p class="footer-note">
+          This credential was issued and cryptographically signed by the
+          named provider. Do not share this link further — it expires automatically.
+        </p>
+      </main>
+    </div>
+  </div>
+
+  <script type="module" src="/src/app.js"></script>
+</body>
+</html>
