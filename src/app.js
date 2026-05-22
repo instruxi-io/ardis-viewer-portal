@@ -17,8 +17,12 @@ async function main() {
   // ── Parse URL fragment ─────────────────────────────────────────────────────
   const hash   = window.location.hash.slice(1); // drop leading #
   const params = new URLSearchParams(hash);
-  const grant  = params.get('grant');
-  const sig    = params.get('sig');
+  const grant     = params.get('grant');
+  const sig       = params.get('sig');
+  const shareId   = params.get('sid');
+  const credId    = params.get('cid');
+  const purpose   = params.get('pur');
+  const expiresAt = params.get('exp');
 
   if (!grant) {
     showError('Missing credential link', 'No access grant found in this URL. Make sure you opened the full link.');
@@ -49,20 +53,13 @@ async function main() {
     renderCredential(vc);
 
     // ── Verify wallet signature (optional — non-blocking) ───────────────────
-    if (sig) {
+    if (sig && shareId && credId && purpose && expiresAt) {
       try {
-        // Reconstruct the canonical payload the mobile app signed.
-        // Fields come from the VC itself — we don't need them in the URL.
-        const subject = vc.credentialSubject ?? {};
-        const payload = JSON.stringify({
-          // share_id and credential_id aren't in the VC — they were signed
-          // at share time. Without them we can't fully verify, but we can
-          // still recover the signer address and display it for transparency.
-        });
-
-        // Simplified recovery: sign the raw grant string (deterministic).
-        // The app signs the payload JSON; viewer shows the recovered address.
-        const signer = recoverSigner(grant, sig);
+        // Reconstruct the exact payload the mobile app signed.
+        // Must match the string built in sharecode_flow_screen.dart:
+        //   '{"share_id":"...","credential_id":"...","purpose":"...","expires_at":"..."}'
+        const payload = `{"share_id":"${shareId}","credential_id":"${credId}","purpose":"${purpose}","expires_at":"${expiresAt}"}`;
+        const signer = recoverSigner(payload, sig);
         if (signer) showSignerAddress(signer);
       } catch {
         // Non-fatal — signature display is best-effort
