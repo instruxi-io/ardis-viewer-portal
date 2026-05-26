@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Ardis — Verified Credential</title>
+  <title>Ardis Dev Viewer</title>
   <link rel="stylesheet" href="/src/styles.css" />
 </head>
 <body>
@@ -27,6 +27,7 @@
         <div class="brand">
           <span class="brand-icon">✦</span>
           <span class="brand-name">Ardis</span>
+          <span class="dev-badge">DEV</span>
         </div>
         <div id="verification-badge" class="badge badge-verified hidden">
           <span>✓</span> Cryptographically Verified
@@ -66,6 +67,8 @@
             <span class="meta-label">Share authorised by</span>
             <span id="signer-address" class="meta-value mono"></span>
           </div>
+
+          <div id="cred-docs" class="hidden"></div>
         </div>
 
         <p class="footer-note">

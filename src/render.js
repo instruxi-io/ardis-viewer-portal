@@ -94,6 +94,44 @@ export function renderCredential(vc) {
   document.getElementById('loading').classList.add('hidden');
 }
 
+export function renderDocuments(pdfObjects, fetchUrl) {
+  const section = document.getElementById('cred-docs');
+  if (!section) return;
+
+  section.innerHTML = '';
+  const heading = document.createElement('p');
+  heading.className = 'docs-heading';
+  heading.textContent = 'Supporting Documents';
+  section.appendChild(heading);
+
+  for (const obj of pdfObjects) {
+    const name = obj.key.split('/').pop();
+    const btn  = document.createElement('button');
+    btn.className   = 'doc-btn';
+    btn.textContent = `⬇ ${name}`;
+    btn.addEventListener('click', async () => {
+      btn.textContent = '…';
+      btn.disabled    = true;
+      try {
+        const url = await fetchUrl(obj.key);
+        const a   = document.createElement('a');
+        a.href     = url;
+        a.download = name;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      } catch (e) {
+        alert(`Download failed: ${e.message}`);
+      } finally {
+        btn.textContent = `⬇ ${name}`;
+        btn.disabled    = false;
+      }
+    });
+    section.appendChild(btn);
+  }
+
+  section.classList.remove('hidden');
+}
+
 export function showSignerAddress(address) {
   document.getElementById('signer-address').textContent = address;
   document.getElementById('signature-row').classList.remove('hidden');
