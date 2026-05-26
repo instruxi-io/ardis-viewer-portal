@@ -127,7 +127,7 @@ async function hmacKey(keyMaterial, message) {
   const buf = await crypto.subtle.sign('HMAC', key,
     new TextEncoder().encode(message));
   return crypto.subtle.importKey(
-    'raw', buf, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+    'raw', buf, { name: 'HMAC', hash: 'SHA-256' }, true, ['sign']);
 }
 
 async function deriveSigningKey(secret, date, region, service) {
@@ -148,12 +148,46 @@ function hex(buffer) {
  * Fetch the first VC JSON file found under the given prefix using the
  * provided Storj access grant. Returns the parsed JSON object.
  */
-export async function fetchCredential(accessGrant, bucket, prefix) {
-  const creds   = await exchangeGrant(accessGrant);
+/**
+ * Fetch the credential and return { vc, creds, bucket, objects } so callers
+ * can offer PDF downloads for any .pdf files found alongside the JSON.
+ */
+export async function fetchCredential(accessGrant, bucket, prefix, credentialId) {
+  console.log('[storj] exchangeGrant start, grant length:', accessGrant.length);
+  const creds = await exchangeGrant(accessGrant);
+  console.log('[storj] exchangeGrant OK, access_key_id:', creds.access_key_id?.slice(0, 12),
+    'endpoint:', creds.endpoint);
+
+  console.log('[storj] listObjects bucket:', bucket, 'prefix:', prefix);
   const objects = await listObjects(creds, bucket, prefix);
-  const jsonObj = objects.find(o => o.key.endsWith('.json'));
+  console.log('[storj] listObjects returned', objects.length, 'objects:', objects.map(o => o.key));
+
+  // If credentialId is present, find the JSON file whose filename starts with it.
+  // This narrows the match when the grant is scoped to a directory-level prefix.
+  const jsonObj = objects.find(o => {
+    if (!o.key.endsWith('.json')) return false;
+    if (credentialId) {
+      const fileName = o.key.split('/').pop();
+      return fileName.startsWith(credentialId);
+    }
+    return true;
+  });
   if (!jsonObj) throw new Error('No credential file found in vault path');
+
+  console.log('[storj] downloading:', jsonObj.key);
   const buf  = await downloadObject(creds, bucket, jsonObj.key);
   const text = new TextDecoder().decode(buf);
-  return JSON.parse(text);
+  const vc   = JSON.parse(text);
+
+  return { vc, creds, bucket, objects };
+}
+
+/**
+ * Download an object and return a blob URL for in-browser use (e.g. PDF preview/download).
+ * The caller is responsible for revoking the URL when done.
+ */
+export async function fetchObjectUrl(creds, bucket, key, mimeType = 'application/octet-stream') {
+  const buf  = await downloadObject(creds, bucket, key);
+  const blob = new Blob([buf], { type: mimeType });
+  return URL.createObjectURL(blob);
 }

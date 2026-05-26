@@ -62,6 +62,29 @@ body {
   font-size: 18px; font-weight: 700; color: #0d9488;
 }
 .brand-icon { font-size: 20px; }
+.docs-heading {
+  font-size: 12px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.06em; color: #64748b;
+  margin: 16px 0 8px;
+}
+
+.doc-btn {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 10px 14px;
+  background: #f8fafc; border: 1px solid #e2e8f0;
+  border-radius: 8px; cursor: pointer;
+  font-size: 13px; color: #0d9488; font-weight: 500;
+  text-align: left; margin-bottom: 6px;
+  transition: background 0.15s;
+}
+.doc-btn:hover { background: #f0fdf4; border-color: #0d9488; }
+.doc-btn:disabled { opacity: 0.5; cursor: wait; }
+
+.dev-badge {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+  background: #f59e0b; color: #fff;
+  padding: 2px 6px; border-radius: 4px;
+}
 
 .badge {
   display: flex; align-items: center; gap: 6px;
