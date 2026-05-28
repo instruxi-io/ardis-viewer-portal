@@ -145,3 +145,15 @@ export function showError(title, body) {
   document.getElementById('error-body').textContent  = body;
   document.getElementById('error').classList.remove('hidden');
 }
+
+// Used by the Stripe Checkout success / cancel and Stripe Identity return
+// pages. These are landing pages — there's no credential to load — so we
+// reuse the error frame but with a neutral, friendly message and a hint to
+// go back to the Ardis app.
+export function showLandingMessage(title, body) {
+  document.getElementById('loading').classList.add('hidden');
+  document.getElementById('credential').classList.add('hidden');
+  document.getElementById('error-title').textContent = title;
+  document.getElementById('error-body').textContent = body;
+  document.getElementById('error').classList.remove('hidden');
+}

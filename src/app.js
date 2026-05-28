@@ -11,21 +11,60 @@
 
 import { fetchSharedCredential } from './api.js';
 import { recoverSigner } from './verify.js';
-import { renderCredential, showSignerAddress, showError } from './render.js';
+import {
+  renderCredential,
+  showSignerAddress,
+  showError,
+  showLandingMessage,
+} from './render.js';
 
 /**
- * Extract the share GUID from the URL. Supports /view/{guid}, /{guid}, and a
- * ?guid= query fallback.
+ * Extract the share GUID from the URL. Only /view/{guid} (or ?guid=...) is a
+ * credential-fetch path. Every other route is a landing page (Stripe success,
+ * Stripe cancel, KYC return) handled separately.
  */
 function parseShareId() {
   const parts = window.location.pathname.split('/').filter(Boolean);
   const viewIdx = parts.indexOf('view');
   if (viewIdx >= 0) return parts[viewIdx + 1] || null;
-  if (parts.length > 0) return parts[parts.length - 1];
   return new URLSearchParams(window.location.search).get('guid');
 }
 
+/**
+ * Match the current path against known non-credential landing routes returned
+ * to the browser by Stripe Checkout / Stripe Identity. Returns the title +
+ * body to show, or null if this is not a landing page.
+ */
+function matchLandingRoute() {
+  const path = window.location.pathname.toLowerCase();
+  if (path.startsWith('/billing/success')) {
+    return {
+      title: 'Subscription complete',
+      body: 'Thank you. Your subscription is active. You can close this tab and return to the Ardis app.',
+    };
+  }
+  if (path.startsWith('/billing/cancel')) {
+    return {
+      title: 'Checkout cancelled',
+      body: 'No charge was made. Return to the Ardis app to try again whenever you are ready.',
+    };
+  }
+  if (path.startsWith('/kyc/return') || path.startsWith('/kyc/success')) {
+    return {
+      title: 'Identity verification complete',
+      body: 'Thanks for verifying your identity. Return to the Ardis app to continue.',
+    };
+  }
+  return null;
+}
+
 async function main() {
+  const landing = matchLandingRoute();
+  if (landing) {
+    showLandingMessage(landing.title, landing.body);
+    return;
+  }
+
   const guid = parseShareId();
   if (!guid) {
     showError('Missing credential link', 'This URL has no share code. Make sure you opened the full link you were sent.');
