@@ -147,13 +147,43 @@ export function showError(title, body) {
 }
 
 // Used by the Stripe Checkout success / cancel and Stripe Identity return
-// pages. These are landing pages — there's no credential to load — so we
-// reuse the error frame but with a neutral, friendly message and a hint to
-// go back to the Ardis app.
-export function showLandingMessage(title, body) {
+// pages. Dark-themed landing screen with a gold checkmark (success) or X
+// (cancel), the right copy, and a deep-link button back to the Ardis app.
+// We also attempt to open the deep link automatically after a short beat
+// so the user is dropped straight back into the app on iOS.
+export function showLandingMessage({ title, body, ctaLabel, deepLink, kind }) {
   document.getElementById('loading').classList.add('hidden');
   document.getElementById('credential').classList.add('hidden');
-  document.getElementById('error-title').textContent = title;
-  document.getElementById('error-body').textContent = body;
-  document.getElementById('error').classList.remove('hidden');
+  document.getElementById('error').classList.add('hidden');
+
+  const screen = document.getElementById('landing');
+  screen.classList.remove('hidden');
+  screen.classList.toggle('is-cancel', kind === 'cancel');
+
+  document.getElementById('landing-title').textContent = title;
+  document.getElementById('landing-body').textContent = body;
+
+  const cta = document.getElementById('landing-cta');
+  cta.textContent = ctaLabel ?? 'Open Ardis';
+  cta.href = deepLink;
+
+  // Draw the success checkmark or the cancel "X" inside the gold orb.
+  const mark = document.getElementById('landingMark');
+  if (kind === 'cancel') {
+    // X mark — two crossed strokes.
+    mark.setAttribute('d', 'M24 24 L40 40 M40 24 L24 40');
+  } else {
+    // Checkmark.
+    mark.setAttribute('d', 'M22 33 L29 40 L42 25');
+  }
+
+  // Best-effort auto deep-link after a short visual beat so users see the
+  // success state before iOS prompts to open the app. iOS Safari does not
+  // honour location.href=custom-scheme without a user gesture in some
+  // versions — the visible button covers that case.
+  if (deepLink) {
+    setTimeout(() => {
+      try { window.location.href = deepLink; } catch { /* user can tap cta */ }
+    }, 900);
+  }
 }

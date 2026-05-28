@@ -32,27 +32,37 @@ function parseShareId() {
 
 /**
  * Match the current path against known non-credential landing routes returned
- * to the browser by Stripe Checkout / Stripe Identity. Returns the title +
- * body to show, or null if this is not a landing page.
+ * to the browser by Stripe Checkout / Stripe Identity. Each landing page
+ * fires a credpass:// deep link to hand control back to the app and shows
+ * the matching success or cancel state if the user stays in the browser.
  */
 function matchLandingRoute() {
   const path = window.location.pathname.toLowerCase();
   if (path.startsWith('/billing/success')) {
     return {
+      kind: 'success',
       title: 'Subscription complete',
-      body: 'Thank you. Your subscription is active. You can close this tab and return to the Ardis app.',
+      body: 'Welcome aboard. Returning you to the Ardis app to unlock your vault.',
+      ctaLabel: 'Open Ardis',
+      deepLink: 'credpass://subscribe/complete',
     };
   }
   if (path.startsWith('/billing/cancel')) {
     return {
+      kind: 'cancel',
       title: 'Checkout cancelled',
-      body: 'No charge was made. Return to the Ardis app to try again whenever you are ready.',
+      body: 'No charge was made. You can try again from inside the Ardis app whenever you are ready.',
+      ctaLabel: 'Back to Ardis',
+      deepLink: 'credpass://subscribe/cancel',
     };
   }
   if (path.startsWith('/kyc/return') || path.startsWith('/kyc/success')) {
     return {
-      title: 'Identity verification complete',
-      body: 'Thanks for verifying your identity. Return to the Ardis app to continue.',
+      kind: 'success',
+      title: 'Identity verified',
+      body: 'You are good to go. Returning you to the Ardis app to continue.',
+      ctaLabel: 'Open Ardis',
+      deepLink: 'credpass://kyc/complete',
     };
   }
   return null;
@@ -61,7 +71,7 @@ function matchLandingRoute() {
 async function main() {
   const landing = matchLandingRoute();
   if (landing) {
-    showLandingMessage(landing.title, landing.body);
+    showLandingMessage(landing);
     return;
   }
 

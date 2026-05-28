@@ -152,3 +152,77 @@ body {
   font-size: 12px; color: #94a3b8;
   text-align: center; line-height: 1.6;
 }
+
+/* ── Landing pages (Stripe Checkout success/cancel, Identity return) ───────
+   Match the CredPass app: deep navy bg, gold accents, lightweight type. */
+
+.landing-screen {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 50% 30%, #1A2A48 0%, #0A1322 60%, #0A1322 100%);
+  color: #F1F5F9;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 32px 28px 48px;
+  text-align: center;
+}
+
+.landing-screen.is-cancel .landing-cta {
+  background: linear-gradient(135deg, #2A364F 0%, #1A2335 100%);
+  color: #F1F5F9;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: none;
+}
+
+.landing-orb { line-height: 0; }
+.landing-orb svg { display: block; }
+
+.landing-title {
+  font-size: 28px;
+  font-weight: 300;
+  letter-spacing: -0.3px;
+  color: #F1F5F9;
+  margin-top: 6px;
+}
+
+.landing-body {
+  font-size: 15px;
+  color: #B7C0CC;
+  line-height: 1.55;
+  max-width: 320px;
+  margin-bottom: 12px;
+}
+
+.landing-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 220px;
+  height: 54px;
+  padding: 0 26px;
+  border-radius: 27px;
+  background: linear-gradient(135deg, #EDD9AE 0%, #CBAF7C 55%, #A48656 100%);
+  color: #0A0F18;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  text-decoration: none;
+  border: 1px solid rgba(237, 217, 174, 0.6);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.32);
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 120ms ease-out, box-shadow 160ms ease-out;
+}
+
+.landing-cta:active {
+  transform: scale(0.985);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.36);
+}
+
+.landing-hint {
+  font-size: 12px;
+  color: #7B8696;
+  max-width: 280px;
+}
