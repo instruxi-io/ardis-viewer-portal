@@ -9,10 +9,11 @@
  * never exposed to the browser, request logs, or anyone who copies the link.
  */
 
-import { fetchSharedCredential } from './api.js';
+import { fetchSharedCredential, fetchShareDocument } from './api.js';
 import { recoverSigner } from './verify.js';
 import {
   renderCredential,
+  renderDocuments,
   showSignerAddress,
   showError,
   showLandingMessage,
@@ -104,6 +105,17 @@ async function main() {
   }
 
   renderCredential(vc);
+
+  // Render download buttons for any backup documents (e.g. PDF verification
+  // reports) attached to this credential. The VP embeds document metadata in
+  // ardis_backup_documents inside the VC JSON; ardis-ms streams the actual
+  // bytes on demand so the Storj grant never leaves the server.
+  // renderDocuments expects objects with a `key` field; map storage_key → key.
+  const backupDocs = vc.ardis_backup_documents;
+  if (Array.isArray(backupDocs) && backupDocs.length > 0) {
+    const docObjects = backupDocs.map(d => ({ ...d, key: d.storage_key }));
+    renderDocuments(docObjects, (storageKey) => fetchShareDocument(guid, storageKey));
+  }
 
   // Best-effort signer display when the server includes the wallet signature.
   const sig = data.signature;

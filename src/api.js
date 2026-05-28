@@ -1,9 +1,10 @@
 /**
  * Ardis API client.
  *
- * The viewer no longer touches Storj directly. It calls the Ardis public share
- * endpoint, which holds the access grant server-side and returns only the
- * credential JSON. The grant is never exposed to the browser.
+ * The viewer never touches Storj directly. All credential and document
+ * requests go through ardis-ms, which holds the Storj access grant
+ * server-side and returns only the data the browser needs. The grant is
+ * never exposed to the browser, request logs, or the URL.
  */
 
 const API_BASE = (import.meta.env.VITE_ARDIS_API_BASE || 'https://gateway.instruxi.dev').replace(/\/+$/, '');
@@ -46,4 +47,41 @@ export async function fetchSharedCredential(guid) {
   }
 
   return body.data;
+}
+
+/**
+ * Fetch a backup document (e.g. a PDF verification report) belonging to a
+ * share and return a blob URL suitable for driving an <a download> click.
+ *
+ * Why a blob URL rather than a direct link?
+ * The document lives in Storj behind the server-side grant. ardis-ms streams
+ * the bytes back as application/pdf. We convert to a blob URL so the browser
+ * can trigger a file-save without ever exposing a Storj-signed URL or the
+ * access grant itself.
+ *
+ * storageKey — the storage_key value from ardis_backup_documents in the VC JSON.
+ */
+export async function fetchShareDocument(guid, storageKey) {
+  const url = `${API_BASE}/api/v1/ardis/public/share/${encodeURIComponent(guid)}/documents?key=${encodeURIComponent(storageKey)}`;
+
+  let res;
+  try {
+    res = await fetch(url);
+  } catch (e) {
+    const err = new Error('Could not reach the document service. Check your connection and try again.');
+    err.code = 'network_error';
+    throw err;
+  }
+
+  if (!res.ok) {
+    let body = null;
+    try { body = await res.json(); } catch { /* non-JSON body */ }
+    const err = new Error(body?.message || `Document fetch failed (HTTP ${res.status})`);
+    err.status = res.status;
+    err.code   = body?.error || `http_${res.status}`;
+    throw err;
+  }
+
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
 }
