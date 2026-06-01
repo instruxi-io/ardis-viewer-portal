@@ -1,12 +1,17 @@
 /**
  * Renders a parsed VC JSON credential into the #credential DOM section.
- * The credential type drives field selection and labelling.
- * Falls back to rendering all credentialSubject fields generically.
+ *
+ * Schema priority (highest to lowest):
+ *  1. ardis_data_schema / ardis_ui_schema embedded in the VC by the VP
+ *  2. Static SCHEMAS fallback keyed by credential type (legacy/built-in VPs)
+ *  3. Generic display of all credentialSubject fields
+ *
+ * VPs define their own schemas and embed them at fulfillment time — no
+ * viewer-portal code change is needed when a new VP joins.
  */
 
-// Per-credential-type display schemas.
-// Add an entry here when a new VP joins the marketplace.
-const SCHEMAS = {
+// Legacy static schemas — used only when a VC does not embed ardis_data_schema.
+const STATIC_SCHEMAS = {
   NPPESCredential: {
     icon: '🏥',
     title: 'NPI / NPPES Registration',
@@ -43,40 +48,98 @@ const SCHEMAS = {
   },
 };
 
-function fmt(val) {
+function fmt(val, format) {
   if (!val) return '—';
-  // ISO date → readable
-  if (/^\d{4}-\d{2}-\d{2}/.test(String(val))) {
-    try { return new Date(val).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }); }
-    catch { return String(val); }
+  const str = String(val);
+  const isDate = format === 'date' || format === 'date-time' || /^\d{4}-\d{2}-\d{2}/.test(str);
+  if (isDate) {
+    try {
+      const opts = format === 'date-time'
+        ? { year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }
+        : { year: 'numeric', month: 'long', day: 'numeric' };
+      return new Date(val).toLocaleDateString('en-US', opts);
+    } catch { return str; }
   }
-  return String(val);
+  return str;
+}
+
+/**
+ * Build a normalised field list from ardis_data_schema + ardis_ui_schema.
+ * Returns [{key, label, format}] in display order.
+ */
+function fieldsFromArdisSchema(dataSchema, uiSchema, subject) {
+  const props = dataSchema?.properties ?? {};
+  const order = uiSchema?.['ui:order'] ?? Object.keys(props);
+  return order
+    .filter(k => k in subject)
+    .map(k => ({
+      key: k,
+      label: props[k]?.title ?? k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+      format: props[k]?.format,
+    }));
 }
 
 export function renderCredential(vc) {
-  const subject = vc.credentialSubject ?? {};
-  const types   = Array.isArray(vc.type) ? vc.type : [vc.type];
-  const credType = types.find(t => t !== 'VerifiableCredential') ?? 'VerifiableCredential';
-  const schema   = SCHEMAS[credType] ?? null;
+  const subject    = vc.credentialSubject ?? {};
+  const types      = Array.isArray(vc.type) ? vc.type : [vc.type];
+  const credType   = types.find(t => t !== 'VerifiableCredential') ?? 'VerifiableCredential';
+  const dataSchema = vc.ardis_data_schema ?? null;
+  const uiSchema   = vc.ardis_ui_schema   ?? null;
+  const staticSchema = STATIC_SCHEMAS[credType] ?? null;
 
   // Title + issuer
   const issuerName = vc.issuer?.name ?? vc.issuer ?? 'Unknown Issuer';
-  document.getElementById('cred-title').textContent  = schema?.title ?? credType.replace(/Credential$/, '') + ' Credential';
+  document.getElementById('cred-title').textContent =
+    staticSchema?.title ?? credType.replace(/Credential$/, '') + ' Credential';
   document.getElementById('cred-issuer').textContent = `Issued by ${issuerName}`;
-  document.querySelector('.credential-type-icon').textContent = schema?.icon ?? '📋';
+  document.querySelector('.credential-type-icon').textContent = staticSchema?.icon ?? '📋';
 
-  // Fields
+  // Fields — prefer embedded schema, fall back to static schema, then generic
   const fieldsEl = document.getElementById('cred-fields');
   fieldsEl.innerHTML = '';
 
-  const fieldsToShow = schema?.fields ?? Object.keys(subject).filter(k => k !== 'id').slice(0, 8);
-  for (const key of fieldsToShow) {
-    if (!(key in subject)) continue;
-    const label = schema?.labels?.[key] ?? key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-    const row = document.createElement('div');
-    row.className = 'field-row';
-    row.innerHTML = `<span class="field-label">${label}</span><span class="field-value">${fmt(subject[key])}</span>`;
-    fieldsEl.appendChild(row);
+  if (dataSchema) {
+    const fields = fieldsFromArdisSchema(dataSchema, uiSchema, subject);
+    const groups = uiSchema?.['ui:groups'];
+
+    if (groups?.length) {
+      for (const group of groups) {
+        const groupFields = (group.fields ?? [])
+          .map(k => fields.find(f => f.key === k))
+          .filter(Boolean)
+          .filter(f => f.key in subject);
+        if (!groupFields.length) continue;
+
+        const heading = document.createElement('p');
+        heading.className = 'field-group-heading';
+        heading.textContent = group.title;
+        fieldsEl.appendChild(heading);
+
+        for (const f of groupFields) {
+          fieldsEl.appendChild(_fieldRow(f.label, fmt(subject[f.key], f.format)));
+        }
+      }
+      // Any fields not in a group
+      const grouped = new Set(groups.flatMap(g => g.fields ?? []));
+      for (const f of fields.filter(f => !grouped.has(f.key))) {
+        fieldsEl.appendChild(_fieldRow(f.label, fmt(subject[f.key], f.format)));
+      }
+    } else {
+      for (const f of fields) {
+        fieldsEl.appendChild(_fieldRow(f.label, fmt(subject[f.key], f.format)));
+      }
+    }
+  } else if (staticSchema) {
+    for (const key of staticSchema.fields) {
+      if (!(key in subject)) continue;
+      const label = staticSchema.labels?.[key] ?? key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      fieldsEl.appendChild(_fieldRow(label, fmt(subject[key])));
+    }
+  } else {
+    for (const key of Object.keys(subject).filter(k => k !== 'id').slice(0, 10)) {
+      const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      fieldsEl.appendChild(_fieldRow(label, fmt(subject[key])));
+    }
   }
 
   // Dates + status
@@ -92,6 +155,13 @@ export function renderCredential(vc) {
 
   document.getElementById('credential').classList.remove('hidden');
   document.getElementById('loading').classList.add('hidden');
+}
+
+function _fieldRow(label, value) {
+  const row = document.createElement('div');
+  row.className = 'field-row';
+  row.innerHTML = `<span class="field-label">${label}</span><span class="field-value">${value}</span>`;
+  return row;
 }
 
 export function renderDocuments(pdfObjects, fetchUrl) {
