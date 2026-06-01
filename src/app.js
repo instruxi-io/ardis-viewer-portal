@@ -48,6 +48,15 @@ function matchLandingRoute() {
       deepLink: 'credpass://subscribe/complete',
     };
   }
+  if (path.startsWith('/billing/portal-return')) {
+    return {
+      kind: 'success',
+      title: 'All done',
+      body: 'Your billing settings have been updated. Return to the Ardis app to continue.',
+      ctaLabel: 'Back to Ardis',
+      deepLink: 'credpass://subscribe/complete',
+    };
+  }
   if (path.startsWith('/billing/cancel')) {
     return {
       kind: 'cancel',
