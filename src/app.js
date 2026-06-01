@@ -9,7 +9,7 @@
  * never exposed to the browser, request logs, or anyone who copies the link.
  */
 
-import { fetchSharedCredential, fetchShareDocument } from './api.js';
+import { fetchSharedCredential, fetchShareDocument, fetchSchema } from './api.js';
 import { recoverSigner } from './verify.js';
 import {
   renderCredential,
@@ -111,6 +111,19 @@ async function main() {
   if (!vc || typeof vc !== 'object') {
     showError('Unable to load credential', 'The credential could not be read.');
     return;
+  }
+
+  // If the VC carries a schema version pointer but no inline schemas, fetch
+  // the display schema from ardis-ms and inject it before rendering.
+  if (vc.ardis_schema_version && !vc.ardis_data_schema) {
+    const [verifierId, version] = vc.ardis_schema_version.split('/');
+    if (verifierId && version) {
+      const schema = await fetchSchema(verifierId, version);
+      if (schema) {
+        vc.ardis_data_schema = schema.data_schema;
+        vc.ardis_ui_schema   = schema.ui_schema ?? {};
+      }
+    }
   }
 
   renderCredential(vc);

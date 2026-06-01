@@ -50,6 +50,23 @@ export async function fetchSharedCredential(guid) {
 }
 
 /**
+ * Fetch a versioned view-model schema from ardis-ms by verifier ID and version.
+ * Returns { data_schema, ui_schema } or null if not found.
+ * Public endpoint — no auth required.
+ */
+export async function fetchSchema(verifierId, version) {
+  const url = `${API_BASE}/api/v1/ardis/public/schemas/${encodeURIComponent(verifierId)}/${encodeURIComponent(version)}`;
+  try {
+    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!res.ok) return null;
+    const body = await res.json();
+    return body?.data ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Fetch a backup document (e.g. a PDF verification report) belonging to a
  * share and return a blob URL suitable for driving an <a download> click.
  *
