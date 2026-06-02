@@ -39,6 +39,15 @@ function parseShareId() {
  */
 function matchLandingRoute() {
   const path = window.location.pathname.toLowerCase();
+  if (path.startsWith('/billing/order-success')) {
+    return {
+      kind: 'success',
+      title: 'Payment confirmed',
+      body: 'Your verification order is being processed. Return to the Ardis app to track progress.',
+      ctaLabel: 'Back to Ardis',
+      deepLink: 'credpass://order/complete',
+    };
+  }
   if (path.startsWith('/billing/success')) {
     return {
       kind: 'success',
