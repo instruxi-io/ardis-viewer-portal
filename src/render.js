@@ -83,8 +83,9 @@ export function renderCredential(vc) {
   const subject    = vc.credentialSubject ?? {};
   const types      = Array.isArray(vc.type) ? vc.type : [vc.type];
   const credType   = types.find(t => t !== 'VerifiableCredential') ?? 'VerifiableCredential';
-  const dataSchema = vc.ardis_data_schema ?? null;
-  const uiSchema   = vc.ardis_ui_schema   ?? null;
+  // Support new (no prefix) and old (ardis_ prefix) field names
+  const dataSchema = vc.data_schema ?? vc.ardis_data_schema ?? null;
+  const uiSchema   = vc.ui_schema   ?? vc.ardis_ui_schema   ?? null;
   const staticSchema = STATIC_SCHEMAS[credType] ?? null;
 
   // Title + issuer
@@ -99,35 +100,15 @@ export function renderCredential(vc) {
   fieldsEl.innerHTML = '';
 
   if (dataSchema) {
-    const fields = fieldsFromArdisSchema(dataSchema, uiSchema, subject);
-    const groups = uiSchema?.['ui:groups'];
-
-    if (groups?.length) {
-      for (const group of groups) {
-        const groupFields = (group.fields ?? [])
-          .map(k => fields.find(f => f.key === k))
-          .filter(Boolean)
-          .filter(f => f.key in subject);
-        if (!groupFields.length) continue;
-
-        const heading = document.createElement('p');
-        heading.className = 'field-group-heading';
-        heading.textContent = group.title;
-        fieldsEl.appendChild(heading);
-
-        for (const f of groupFields) {
-          fieldsEl.appendChild(_fieldRow(f.label, fmt(subject[f.key], f.format)));
-        }
-      }
-      // Any fields not in a group
-      const grouped = new Set(groups.flatMap(g => g.fields ?? []));
-      for (const f of fields.filter(f => !grouped.has(f.key))) {
-        fieldsEl.appendChild(_fieldRow(f.label, fmt(subject[f.key], f.format)));
-      }
-    } else {
-      for (const f of fields) {
-        fieldsEl.appendChild(_fieldRow(f.label, fmt(subject[f.key], f.format)));
-      }
+    const props = dataSchema?.properties ?? {};
+    const order = Object.keys(props);
+    for (const key of order) {
+      if (!(key in subject)) continue;
+      _renderNode(fieldsEl, key, subject[key], props[key] ?? {});
+    }
+    // Any subject keys not in schema
+    for (const key of Object.keys(subject).filter(k => k !== 'id' && !(k in props))) {
+      _renderNode(fieldsEl, key, subject[key], {});
     }
   } else if (staticSchema) {
     for (const key of staticSchema.fields) {
@@ -162,6 +143,73 @@ function _fieldRow(label, value) {
   row.className = 'field-row';
   row.innerHTML = `<span class="field-label">${label}</span><span class="field-value">${value}</span>`;
   return row;
+}
+
+/** Recursively render a value based on its schema type. */
+function _renderNode(container, key, value, propSchema) {
+  if (value === null || value === undefined) return;
+  if (typeof value === 'string' && value.trim() === '') return;
+
+  const type   = propSchema.type;
+  const title  = propSchema.title ?? _titleCase(key);
+  const format = propSchema.format;
+
+  if (type === 'array' && Array.isArray(value)) {
+    if (value.length === 0) return;
+    const section = document.createElement('div');
+    section.className = 'field-array-section';
+
+    const heading = document.createElement('p');
+    heading.className = 'field-group-heading';
+    heading.textContent = title;
+    section.appendChild(heading);
+
+    const itemSchema = propSchema.items ?? {};
+    const itemProps  = itemSchema.properties ?? {};
+
+    value.forEach((item, i) => {
+      if (value.length > 1) {
+        const divider = document.createElement('p');
+        divider.className = 'field-array-divider';
+        divider.textContent = `${i + 1}`;
+        section.appendChild(divider);
+      }
+      if (item && typeof item === 'object' && !Array.isArray(item)) {
+        for (const [k, v] of Object.entries(item)) {
+          if (v === null || v === undefined || v === '') continue;
+          _renderNode(section, k, v, itemProps[k] ?? {});
+        }
+      } else {
+        section.appendChild(_fieldRow('', fmt(item, null)));
+      }
+    });
+
+    container.appendChild(section);
+  } else if (type === 'object' && value && typeof value === 'object') {
+    const nestedProps = propSchema.properties ?? {};
+    const hasContent  = Object.entries(value).some(([, v]) => v !== null && v !== undefined && v !== '');
+    if (!hasContent) return;
+
+    if (title) {
+      const label = document.createElement('p');
+      label.className = 'field-object-label';
+      label.textContent = title;
+      container.appendChild(label);
+    }
+    for (const [k, v] of Object.entries(value)) {
+      if (v === null || v === undefined || v === '') continue;
+      _renderNode(container, k, v, nestedProps[k] ?? {});
+    }
+  } else if (Array.isArray(value) || (value && typeof value === 'object')) {
+    // Untyped array or object — render recursively without schema
+    _renderNode(container, key, value, { type: Array.isArray(value) ? 'array' : 'object', title });
+  } else {
+    container.appendChild(_fieldRow(title, fmt(value, format)));
+  }
+}
+
+function _titleCase(key) {
+  return key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 }
 
 export function renderDocuments(pdfObjects, fetchUrl) {

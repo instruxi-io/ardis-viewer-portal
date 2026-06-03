@@ -122,27 +122,21 @@ async function main() {
     return;
   }
 
-  // If the VC carries a schema version pointer but no inline schemas, fetch
-  // the display schema from ardis-ms and inject it before rendering.
-  if (vc.ardis_schema_version && !vc.ardis_data_schema) {
-    const [verifierId, version] = vc.ardis_schema_version.split('/');
-    if (verifierId && version) {
-      const schema = await fetchSchema(verifierId, version);
-      if (schema) {
-        vc.ardis_data_schema = schema.data_schema;
-        vc.ardis_ui_schema   = schema.ui_schema ?? {};
-      }
+  // Fetch display schema from ardis-ms using the schema_version pointer in the VC.
+  // Format: "{verifierId}/{credentialType}/{version}" e.g. "pmacedoflores0/license/v1"
+  const schemaVersion = vc.schema_version ?? vc.ardis_schema_version;
+  if (schemaVersion && !vc.data_schema) {
+    const schema = await fetchSchema(schemaVersion);
+    if (schema) {
+      vc.data_schema = schema.data_schema;
+      vc.ui_schema   = schema.ui_schema ?? {};
     }
   }
 
   renderCredential(vc);
 
-  // Render download buttons for any backup documents (e.g. PDF verification
-  // reports) attached to this credential. The VP embeds document metadata in
-  // ardis_backup_documents inside the VC JSON; ardis-ms streams the actual
-  // bytes on demand so the Storj grant never leaves the server.
-  // renderDocuments expects objects with a `key` field; map storage_key → key.
-  const backupDocs = vc.ardis_backup_documents;
+  // Render download buttons for any backup documents attached to this credential.
+  const backupDocs = vc.backup_documents ?? vc.ardis_backup_documents;
   if (Array.isArray(backupDocs) && backupDocs.length > 0) {
     const docObjects = backupDocs.map(d => ({ ...d, key: d.storage_key }));
     renderDocuments(docObjects, (storageKey) => fetchShareDocument(guid, storageKey));
