@@ -50,12 +50,17 @@ export async function fetchSharedCredential(guid) {
 }
 
 /**
- * Fetch a versioned view-model schema from ardis-ms by verifier ID and version.
+ * Fetch a credential display schema from ardis-ms.
+ * schemaVersion format: "{verifierId}/{credentialType}/{version}" e.g. "pmacedoflores0/license/v1"
+ * Fetches /latest so the most recent schema always applies.
  * Returns { data_schema, ui_schema } or null if not found.
  * Public endpoint — no auth required.
  */
-export async function fetchSchema(verifierId, version) {
-  const url = `${API_BASE}/api/v1/ardis/public/schemas/${encodeURIComponent(verifierId)}/${encodeURIComponent(version)}`;
+export async function fetchSchema(schemaVersion) {
+  const parts = schemaVersion.split('/');
+  if (parts.length < 2) return null;
+  const [verifierId, credentialType] = parts;
+  const url = `${API_BASE}/api/v1/ardis/public/credential-schemas/${encodeURIComponent(verifierId)}/${encodeURIComponent(credentialType)}/latest`;
   try {
     const res = await fetch(url, { headers: { Accept: 'application/json' } });
     if (!res.ok) return null;
