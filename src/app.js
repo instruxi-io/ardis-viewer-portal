@@ -100,9 +100,59 @@ async function main() {
     return;
   }
 
+  // Peek at Content-Type first — personal documents (PDF, image) are served
+  // as binary with their mime type, not as JSON credential wrappers.
+  const API_BASE = (import.meta.env.VITE_ARDIS_API_BASE || 'https://gateway.instruxi.dev').replace(/\/+$/, '');
+  const shareUrl = `${API_BASE}/api/v1/ardis/public/share/${encodeURIComponent(guid)}`;
+
+  let rawResp;
+  try {
+    rawResp = await fetch(shareUrl, { headers: { Accept: 'application/json, */*' } });
+  } catch (e) {
+    showError('Unable to load', 'Could not reach the credential service. Check your connection.');
+    return;
+  }
+
+  const contentType = rawResp.headers.get('Content-Type') || '';
+
+  if (!contentType.includes('application/json')) {
+    // Binary personal document
+    if (!rawResp.ok) { showError('Unable to load document', `HTTP ${rawResp.status}`); return; }
+    const blob = await rawResp.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const ext = contentType.includes('pdf') ? '.pdf' : contentType.includes('image') ? '.jpg' : '';
+    document.getElementById('loading').classList.add('hidden');
+    const container = document.getElementById('credential');
+    container.classList.remove('hidden');
+    document.getElementById('cred-title').textContent = 'Shared Document';
+    document.getElementById('cred-issuer').textContent = '';
+    document.querySelector('.credential-type-icon').textContent = contentType.includes('pdf') ? '📄' : '🖼';
+    document.getElementById('cred-fields').innerHTML =
+      `<a href="${blobUrl}" download="document${ext}" style="display:inline-block;margin-top:8px;padding:10px 20px;background:var(--gold,#CBAF7C);color:#0A0F18;font-weight:700;border-radius:12px;text-decoration:none;">⬇ Download Document</a>`;
+    document.getElementById('cred-issued').textContent = '';
+    document.getElementById('cred-expires').textContent = '';
+    document.getElementById('cred-status').textContent = '';
+    return;
+  }
+
+  let body;
+  try {
+    body = await rawResp.json();
+  } catch (e) {
+    showError('Unable to load credential', 'The server returned an unexpected response.');
+    return;
+  }
+
   let data;
   try {
-    data = await fetchSharedCredential(guid);
+    if (!rawResp.ok) {
+      const err = new Error(body?.message || `Request failed (HTTP ${rawResp.status})`);
+      err.status = rawResp.status;
+      err.code = body?.error || `http_${rawResp.status}`;
+      throw err;
+    }
+    if (!body?.success || !body?.data) throw Object.assign(new Error(body?.message || 'Unexpected response'), { code: 'malformed_response' });
+    data = body.data;
   } catch (err) {
     if (err.status === 404 || err.code === 'not_found') {
       showError('Link not found', 'This credential link does not exist. Check that you copied the full link.');
