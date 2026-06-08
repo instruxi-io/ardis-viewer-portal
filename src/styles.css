@@ -227,3 +227,67 @@ body {
   color: #7B8696;
   max-width: 280px;
 }
+
+/* ── OTP Gate ──────────────────────────────────────────────────────────────── */
+
+.otp-card {
+  background: white;
+  border-radius: 16px;
+  padding: 32px 28px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+  width: 100%;
+  max-width: 380px;
+  text-align: center;
+}
+
+.otp-icon { font-size: 36px; margin-bottom: 12px; }
+
+.otp-title {
+  font-size: 20px; font-weight: 700;
+  color: #0f172a; margin-bottom: 8px;
+}
+
+.otp-body {
+  font-size: 14px; color: #64748b;
+  line-height: 1.55; margin-bottom: 20px;
+}
+
+.otp-hint {
+  font-size: 13px; color: #64748b;
+  margin-bottom: 12px;
+}
+
+.otp-input {
+  width: 100%; padding: 12px 14px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 15px; color: #0f172a;
+  outline: none; margin-bottom: 10px;
+  box-sizing: border-box;
+  transition: border-color 0.15s;
+}
+.otp-input:focus { border-color: #0d9488; }
+.otp-input-code { text-align: center; letter-spacing: 6px; font-size: 22px; font-weight: 700; }
+
+.otp-btn {
+  width: 100%; padding: 13px;
+  background: #0d9488; color: white;
+  border: none; border-radius: 10px;
+  font-size: 15px; font-weight: 600;
+  cursor: pointer; margin-bottom: 8px;
+  transition: background 0.15s;
+}
+.otp-btn:hover { background: #0f766e; }
+.otp-btn:disabled { background: #94a3b8; cursor: not-allowed; }
+
+.otp-link {
+  background: none; border: none;
+  color: #0d9488; font-size: 13px;
+  cursor: pointer; text-decoration: underline;
+  padding: 4px;
+}
+
+.otp-error {
+  font-size: 13px; color: #dc2626;
+  margin-bottom: 10px; text-align: left;
+}

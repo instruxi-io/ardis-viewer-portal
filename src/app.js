@@ -103,14 +103,49 @@ async function main() {
   // Peek at Content-Type first — personal documents (PDF, image) are served
   // as binary with their mime type, not as JSON credential wrappers.
   const API_BASE = (import.meta.env.VITE_ARDIS_API_BASE || 'https://gateway.instruxi.dev').replace(/\/+$/, '');
+  const ENFORCER_BASE = (import.meta.env.VITE_ENFORCER_BASE || 'https://gateway-staging.instruxi.dev/api/v1/enforcer').replace(/\/+$/, '');
+  const VIEWER_TENANT = 'CredPass-Viewer-Portal';
   const shareUrl = `${API_BASE}/api/v1/ardis/public/share/${encodeURIComponent(guid)}`;
+
+  async function fetchShare(bearerToken) {
+    const headers = { Accept: 'application/json, */*' };
+    if (bearerToken) headers['Authorization'] = `Bearer ${bearerToken}`;
+    return fetch(shareUrl, { headers });
+  }
+
+  // Handles a 401 response — runs OTP flow and retries. Returns the final
+  // response (post-auth) or null if the flow was abandoned.
+  async function handleOTPChallenge(resp) {
+    let body = null;
+    try { body = await resp.json(); } catch { /* ignore */ }
+    if (!body?.otp_required) return null;
+    const token = await runOTPFlow(ENFORCER_BASE, VIEWER_TENANT, body.email_hint);
+    if (!token) return null;
+    try {
+      return await fetchShare(token);
+    } catch {
+      showError('Unable to load', 'Could not reach the credential service. Check your connection.');
+      return null;
+    }
+  }
 
   let rawResp;
   try {
-    rawResp = await fetch(shareUrl, { headers: { Accept: 'application/json, */*' } });
+    rawResp = await fetchShare(null);
   } catch (e) {
     showError('Unable to load', 'Could not reach the credential service. Check your connection.');
     return;
+  }
+
+  // First OTP challenge — unauthenticated request returned 401.
+  if (rawResp.status === 401) {
+    rawResp = await handleOTPChallenge(rawResp);
+    if (!rawResp) return;
+    // Second 401 means the token expired or was rejected immediately after verify.
+    if (rawResp.status === 401) {
+      showError('Session expired', 'Your verification session expired. Please refresh the page and verify again.');
+      return;
+    }
   }
 
   const contentType = rawResp.headers.get('Content-Type') || '';
@@ -160,6 +195,8 @@ async function main() {
       showError('Link already used', 'This is a single-use link and it has already been opened.');
     } else if (err.status === 410 || err.code === 'expired') {
       showError('Link expired', 'This credential link has expired. Ask the holder to send a new one.');
+    } else if (err.status === 403 || err.code === 'wrong_recipient') {
+      showError('Wrong recipient', 'This link was shared with a different recipient. Please use the correct email address to access this credential.');
     } else {
       showError('Unable to load credential', err.message || String(err));
     }
@@ -205,3 +242,144 @@ async function main() {
 }
 
 main();
+
+/**
+ * Runs the OTP verification flow. Shows the OTP gate UI, drives the two-step
+ * Enforcer email login, and resolves with the viewer's JWT on success or null
+ * if the flow is abandoned / errors out unrecoverably.
+ *
+ * @param {string} enforcerBase  e.g. "https://gateway.instruxi.dev/api/v1/enforcer"
+ * @param {string} tenantCode    "CredPass-Viewer-Portal"
+ * @param {string} emailHint     masked hint from server e.g. "h***@hospital.com"
+ */
+function runOTPFlow(enforcerBase, tenantCode, emailHint) {
+  return new Promise((resolve) => {
+    const gate      = document.getElementById('otp-gate');
+    const loading   = document.getElementById('loading');
+    const stepEmail = document.getElementById('otp-step-email');
+    const stepCode  = document.getElementById('otp-step-code');
+    const bodyEl    = document.getElementById('otp-body');
+    const emailInput = document.getElementById('otp-email-input');
+    const codeInput  = document.getElementById('otp-code-input');
+    const sendBtn    = document.getElementById('otp-send-btn');
+    const verifyBtn  = document.getElementById('otp-verify-btn');
+    const resendBtn  = document.getElementById('otp-resend-btn');
+    const emailErr   = document.getElementById('otp-error');
+    const codeErr    = document.getElementById('otp-code-error');
+    const hintEl     = document.getElementById('otp-hint');
+
+    loading.classList.add('hidden');
+    if (emailHint) {
+      bodyEl.textContent = `This credential was shared with ${emailHint}. Enter that email address to receive your verification code.`;
+    }
+    gate.classList.remove('hidden');
+
+    function showEmailError(msg) {
+      emailErr.textContent = msg;
+      emailErr.classList.remove('hidden');
+    }
+    function showCodeError(msg) {
+      codeErr.textContent = msg;
+      codeErr.classList.remove('hidden');
+    }
+    function clearErrors() {
+      emailErr.classList.add('hidden');
+      codeErr.classList.add('hidden');
+    }
+
+    let verifiedEmail = '';
+
+    async function sendCode() {
+      clearErrors();
+      const email = emailInput.value.trim().toLowerCase();
+      if (!email || !email.includes('@')) {
+        showEmailError('Please enter a valid email address.');
+        return;
+      }
+      sendBtn.disabled = true;
+      emailInput.disabled = true;
+      sendBtn.textContent = 'Sending…';
+      try {
+        const res = await fetch(`${enforcerBase}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, tenant_code: tenantCode }),
+        });
+        if (!res.ok) {
+          const b = await res.json().catch(() => ({}));
+          if (res.status === 404) {
+            showEmailError('No account found for that address. Make sure you are using the email address this credential was shared with.');
+          } else {
+            showEmailError(b.message || 'Failed to send verification code. Please try again.');
+          }
+          return;
+        }
+        verifiedEmail = email;
+        hintEl.textContent = `Enter the 6-digit code sent to ${email}.`;
+        stepEmail.classList.add('hidden');
+        stepCode.classList.remove('hidden');
+        codeInput.focus();
+      } catch {
+        showEmailError('Could not reach the verification service. Check your connection.');
+      } finally {
+        sendBtn.disabled = false;
+        emailInput.disabled = false;
+        sendBtn.textContent = 'Send Code';
+      }
+    }
+
+    async function verifyCode() {
+      clearErrors();
+      const code = codeInput.value.replace(/\D/g, '').slice(0, 6);
+      if (code.length < 4) {
+        showCodeError('Please enter the full verification code.');
+        return;
+      }
+      verifyBtn.disabled = true;
+      codeInput.disabled = true;
+      verifyBtn.textContent = 'Verifying…';
+      try {
+        const res = await fetch(`${enforcerBase}/auth/login/verify`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: verifiedEmail, otp: code, tenant_code: tenantCode }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          if (res.status === 429) {
+            showCodeError('Too many attempts. Please request a new code.');
+          } else {
+            showCodeError('Invalid or expired code. Please try again.');
+          }
+          codeInput.value = '';
+          return;
+        }
+        const token = body.data?.token;
+        if (!token) {
+          showCodeError('Verification succeeded but no token was returned. Please try again.');
+          return;
+        }
+        gate.classList.add('hidden');
+        document.getElementById('loading').classList.remove('hidden');
+        resolve(token);
+      } catch {
+        showCodeError('Could not reach the verification service. Check your connection.');
+      } finally {
+        verifyBtn.disabled = false;
+        codeInput.disabled = false;
+        verifyBtn.textContent = 'Verify';
+      }
+    }
+
+    sendBtn.addEventListener('click', sendCode);
+    emailInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendCode(); });
+    verifyBtn.addEventListener('click', verifyCode);
+    codeInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') verifyCode(); });
+    resendBtn.addEventListener('click', () => {
+      stepCode.classList.add('hidden');
+      stepEmail.classList.remove('hidden');
+      codeInput.value = '';
+      clearErrors();
+    });
+  });
+}
