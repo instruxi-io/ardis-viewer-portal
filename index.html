@@ -58,6 +58,29 @@
       </p>
     </div>
 
+    <!-- OTP gate — shown when share requires identity verification -->
+    <div id="otp-gate" class="center-screen hidden">
+      <div class="otp-card">
+        <div class="otp-icon">🔒</div>
+        <h2 class="otp-title">Identity Verification Required</h2>
+        <p class="otp-body" id="otp-body">This credential has been shared with a specific recipient. Enter your email address to receive a verification code.</p>
+
+        <div id="otp-step-email">
+          <input id="otp-email-input" class="otp-input" type="email" placeholder="your@email.com" autocomplete="email" />
+          <p id="otp-error" class="otp-error hidden"></p>
+          <button id="otp-send-btn" class="otp-btn">Send Code</button>
+        </div>
+
+        <div id="otp-step-code" class="hidden">
+          <p class="otp-hint" id="otp-hint"></p>
+          <input id="otp-code-input" class="otp-input otp-input-code" type="text" inputmode="numeric" maxlength="6" placeholder="000000" autocomplete="one-time-code" />
+          <p id="otp-code-error" class="otp-error hidden"></p>
+          <button id="otp-verify-btn" class="otp-btn">Verify</button>
+          <button id="otp-resend-btn" class="otp-link">Resend code</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Credential card -->
     <div id="credential" class="hidden">
       <header class="header">
