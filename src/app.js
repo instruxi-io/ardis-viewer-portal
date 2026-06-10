@@ -94,10 +94,10 @@ async function main() {
     return;
   }
 
-  const guid = parseShareId();
+  let guid = parseShareId();
   if (!guid) {
-    showError('Missing credential link', 'This URL has no share code. Make sure you opened the full link you were sent.');
-    return;
+    guid = await runCodeEntryFlow(API_BASE);
+    if (!guid) return;
   }
 
   // Peek at Content-Type first — personal documents (PDF, image) are served
@@ -242,6 +242,83 @@ async function main() {
 }
 
 main();
+
+/**
+ * Shows the code entry gate and resolves a 9-digit share code to a GUID.
+ * Returns the GUID string on success, or null if the flow errors out.
+ */
+async function runCodeEntryFlow(apiBase) {
+  return new Promise((resolve) => {
+    const gate    = document.getElementById('code-gate');
+    const input   = document.getElementById('code-input');
+    const btn     = document.getElementById('code-submit-btn');
+    const errEl   = document.getElementById('code-error');
+
+    document.getElementById('loading').classList.add('hidden');
+    gate.classList.remove('hidden');
+    input.focus();
+
+    function showErr(msg) {
+      errEl.textContent = msg;
+      errEl.classList.remove('hidden');
+    }
+    function clearErr() {
+      errEl.classList.add('hidden');
+    }
+
+    // Auto-format digits into "000 000 000" as user types.
+    input.addEventListener('input', () => {
+      const digits = input.value.replace(/\D/g, '').slice(0, 9);
+      if (digits.length <= 3) {
+        input.value = digits;
+      } else if (digits.length <= 6) {
+        input.value = `${digits.slice(0, 3)} ${digits.slice(3)}`;
+      } else {
+        input.value = `${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6)}`;
+      }
+      clearErr();
+    });
+
+    async function submit() {
+      clearErr();
+      const digits = input.value.replace(/\D/g, '');
+      if (digits.length !== 9) {
+        showErr('Please enter the full 9-digit code.');
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = 'Looking up…';
+      try {
+        const resp = await fetch(`${apiBase}/api/v1/ardis/public/share/code/${digits}`);
+        const body = await resp.json().catch(() => ({}));
+        if (resp.status === 404) {
+          showErr('That code was not found or has expired.');
+          return;
+        }
+        if (!resp.ok) {
+          showErr(body.message || 'Could not resolve that code. Please try again.');
+          return;
+        }
+        const guid = body.data?.guid;
+        if (!guid) {
+          showErr('Unexpected response. Please try again.');
+          return;
+        }
+        gate.classList.add('hidden');
+        document.getElementById('loading').classList.remove('hidden');
+        resolve(guid);
+      } catch {
+        showErr('Could not reach the service. Check your connection.');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Continue';
+      }
+    }
+
+    btn.addEventListener('click', submit);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+  });
+}
 
 /**
  * Runs the OTP verification flow. Shows the OTP gate UI, drives the two-step
