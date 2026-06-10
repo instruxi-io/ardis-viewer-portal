@@ -1,0 +1,37 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - master      # → staging (ardis-viewer-portal.pages.dev)
+      - production  # → production (when domain exists)
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'production' && 'production' || 'staging' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Build
+        run: npm run build
+        env:
+          # These come from the GitHub Environment (staging or production).
+          # Set them in: GitHub repo → Settings → Environments → staging/production → Variables
+          VITE_ARDIS_API_BASE: ${{ vars.VITE_ARDIS_API_BASE }}
+          VITE_ENFORCER_BASE: ${{ vars.VITE_ENFORCER_BASE }}
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --project-name=ardis-viewer-portal
