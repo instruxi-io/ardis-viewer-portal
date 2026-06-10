@@ -58,6 +58,27 @@
       </p>
     </div>
 
+    <!-- Code entry gate — shown when viewer navigates directly (no GUID in URL) -->
+    <div id="code-gate" class="center-screen hidden">
+      <div class="otp-card">
+        <div class="otp-icon">🔑</div>
+        <h2 class="otp-title">Enter Share Code</h2>
+        <p class="otp-body">Enter the 9-digit code from your Ardis share.</p>
+        <input
+          id="code-input"
+          class="otp-input code-input"
+          type="text"
+          inputmode="numeric"
+          maxlength="11"
+          placeholder="000 000 000"
+          autocomplete="off"
+        />
+        <p id="code-error" class="otp-error hidden"></p>
+        <button id="code-submit-btn" class="otp-btn">Continue</button>
+        <p class="code-hint">Was a link or QR code shared with you? Open that link directly instead.</p>
+      </div>
+    </div>
+
     <!-- OTP gate — shown when share requires identity verification -->
     <div id="otp-gate" class="center-screen hidden">
       <div class="otp-card">
