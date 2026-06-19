@@ -250,6 +250,58 @@ export function renderDocuments(pdfObjects, fetchUrl) {
   section.classList.remove('hidden');
 }
 
+/**
+ * Renders monitoring alerts (adverse actions, sanctions) above the credential.
+ * Alerts are sorted by severity: critical first, then warning, then info.
+ * @param {Array<{type: string, severity: string, title: string, message: string, created_at: string}>} alerts
+ */
+export function renderAlerts(alerts) {
+  const container = document.getElementById('credential');
+  if (!container) return;
+
+  const sorted = [...alerts].sort((a, b) => {
+    const order = { critical: 0, warning: 1, info: 2 };
+    return (order[a.severity] ?? 2) - (order[b.severity] ?? 2);
+  });
+
+  const section = document.createElement('div');
+  section.style.cssText = 'margin-bottom:16px';
+
+  for (const alert of sorted) {
+    const colors = {
+      critical: { bg: '#fef2f2', border: '#ef4444', icon: '🚨' },
+      warning:  { bg: '#fffbeb', border: '#f59e0b', icon: '⚠️' },
+      info:     { bg: '#eff6ff', border: '#3b82f6', icon: 'ℹ️' },
+    };
+    const { bg, border, icon } = colors[alert.severity] ?? colors.info;
+
+    const el = document.createElement('div');
+    el.style.cssText = `
+      background:${bg};
+      border:1px solid ${border};
+      border-left:4px solid ${border};
+      border-radius:8px;
+      padding:12px 16px;
+      margin-bottom:8px;
+    `;
+    const date = alert.created_at
+      ? new Date(alert.created_at).toLocaleDateString(undefined, { year:'numeric', month:'short', day:'numeric' })
+      : '';
+    el.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+        <span>${icon}</span>
+        <strong style="font-size:14px">${alert.title}</strong>
+        ${date ? `<span style="margin-left:auto;font-size:11px;opacity:0.6">${date}</span>` : ''}
+      </div>
+      ${alert.message ? `<p style="margin:0;font-size:13px;opacity:0.8">${alert.message}</p>` : ''}
+    `;
+    section.appendChild(el);
+  }
+
+  // Insert before the first child of the credential container.
+  container.insertBefore(section, container.firstChild);
+}
+
 export function showSignerAddress(address) {
   document.getElementById('signer-address').textContent = address;
   document.getElementById('signature-row').classList.remove('hidden');

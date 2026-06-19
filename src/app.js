@@ -13,6 +13,7 @@ import { fetchSharedCredential, fetchShareDocument, fetchSchema } from './api.js
 import { recoverSigner } from './verify.js';
 import {
   renderCredential,
+  renderAlerts,
   renderDocuments,
   showSignerAddress,
   showError,
@@ -221,6 +222,13 @@ async function main() {
   }
 
   renderCredential(vc);
+
+  // Render active monitoring alerts (adverse actions, sanctions) if present in
+  // the share response. The server includes alerts attached to this credential.
+  const alerts = data.alerts;
+  if (Array.isArray(alerts) && alerts.length > 0) {
+    renderAlerts(alerts);
+  }
 
   // Render download buttons for any backup documents attached to this credential.
   const backupDocs = vc.backup_documents ?? vc.ardis_backup_documents;
