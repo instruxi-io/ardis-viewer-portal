@@ -95,13 +95,14 @@ async function main() {
     return;
   }
 
+  const API_BASE = (import.meta.env.VITE_ARDIS_API_BASE || 'https://gateway.instruxi.dev').replace(/\/+$/, '');
+
   let guid = parseShareId();
   if (!guid) {
     guid = await runCodeEntryFlow(API_BASE);
     if (!guid) return;
   }
 
-  const API_BASE = (import.meta.env.VITE_ARDIS_API_BASE || 'https://gateway.instruxi.dev').replace(/\/+$/, '');
   const shareUrl = `${API_BASE}/api/v1/ardis/public/share/${encodeURIComponent(guid)}`;
 
   // OTP gate temporarily removed — shares are accessible via PIN only.
