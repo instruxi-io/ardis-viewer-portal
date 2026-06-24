@@ -101,52 +101,18 @@ async function main() {
     if (!guid) return;
   }
 
-  // Peek at Content-Type first — personal documents (PDF, image) are served
-  // as binary with their mime type, not as JSON credential wrappers.
   const API_BASE = (import.meta.env.VITE_ARDIS_API_BASE || 'https://gateway.instruxi.dev').replace(/\/+$/, '');
-  const ENFORCER_BASE = (import.meta.env.VITE_ENFORCER_BASE || 'https://gateway-staging.instruxi.dev/api/v1/enforcer').replace(/\/+$/, '');
-  const VIEWER_TENANT = 'CredPass-Viewer-Portal';
   const shareUrl = `${API_BASE}/api/v1/ardis/public/share/${encodeURIComponent(guid)}`;
 
-  async function fetchShare(bearerToken) {
-    const headers = { Accept: 'application/json, */*' };
-    if (bearerToken) headers['Authorization'] = `Bearer ${bearerToken}`;
-    return fetch(shareUrl, { headers });
-  }
-
-  // Handles a 401 response — runs OTP flow and retries. Returns the final
-  // response (post-auth) or null if the flow was abandoned.
-  async function handleOTPChallenge(resp) {
-    let body = null;
-    try { body = await resp.json(); } catch { /* ignore */ }
-    if (!body?.otp_required) return null;
-    const token = await runOTPFlow(ENFORCER_BASE, VIEWER_TENANT, body.email_hint);
-    if (!token) return null;
-    try {
-      return await fetchShare(token);
-    } catch {
-      showError('Unable to load', 'Could not reach the credential service. Check your connection.');
-      return null;
-    }
-  }
-
+  // OTP gate temporarily removed — shares are accessible via PIN only.
+  // Email verification will be re-enabled once the Ardis tenant email
+  // provider is configured on the backend.
   let rawResp;
   try {
-    rawResp = await fetchShare(null);
+    rawResp = await fetch(shareUrl, { headers: { Accept: 'application/json, */*' } });
   } catch (e) {
     showError('Unable to load', 'Could not reach the credential service. Check your connection.');
     return;
-  }
-
-  // First OTP challenge — unauthenticated request returned 401.
-  if (rawResp.status === 401) {
-    rawResp = await handleOTPChallenge(rawResp);
-    if (!rawResp) return;
-    // Second 401 means the token expired or was rejected immediately after verify.
-    if (rawResp.status === 401) {
-      showError('Session expired', 'Your verification session expired. Please refresh the page and verify again.');
-      return;
-    }
   }
 
   const contentType = rawResp.headers.get('Content-Type') || '';
