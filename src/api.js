@@ -60,7 +60,7 @@ export async function fetchSchema(schemaVersion) {
   const parts = schemaVersion.split('/');
   if (parts.length < 2) return null;
   const [verifierId, credentialType] = parts;
-  const url = `${API_BASE}/api/v1/ardis/public/credential-schemas/${encodeURIComponent(verifierId)}/${encodeURIComponent(credentialType)}/latest`;
+  const url = `${API_BASE}/api/v1/ardis/public/display-schemas/${encodeURIComponent(verifierId)}/${encodeURIComponent(credentialType)}/latest`;
   try {
     const res = await fetch(url, { headers: { Accept: 'application/json' } });
     if (!res.ok) return null;
