@@ -132,9 +132,17 @@ async function main() {
     document.querySelector('.credential-type-icon').textContent = contentType.includes('pdf') ? '📄' : '🖼';
     document.getElementById('cred-fields').innerHTML =
       `<a href="${blobUrl}" download="document${ext}" style="display:inline-block;margin-top:8px;padding:10px 20px;background:var(--gold,#CBAF7C);color:#0A0F18;font-weight:700;border-radius:12px;text-decoration:none;">⬇ Download Document</a>`;
+    // Hide credential-specific metadata rows — not applicable to personal documents
     document.getElementById('cred-issued').textContent = '';
     document.getElementById('cred-expires').textContent = '';
     document.getElementById('cred-status').textContent = '';
+    ['cred-issued', 'cred-expires', 'cred-status'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) {
+        const row = el.closest('.meta-row') || el.parentElement;
+        if (row) row.style.display = 'none';
+      }
+    });
     return;
   }
 
