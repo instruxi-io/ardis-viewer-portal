@@ -80,16 +80,18 @@ function fieldsFromArdisSchema(dataSchema, uiSchema, subject) {
 }
 
 export function renderCredential(vc) {
-  const subject    = vc.credentialSubject ?? {};
-  const types      = Array.isArray(vc.type) ? vc.type : [vc.type];
-  const credType   = types.find(t => t !== 'VerifiableCredential') ?? 'VerifiableCredential';
-  // Support new (no prefix) and old (ardis_ prefix) field names
+  // Support both new simplified format (data, issued_at, expires_at)
+  // and legacy W3C format (credentialSubject, issuanceDate, expirationDate).
+  const subject    = vc.data ?? vc.credentialSubject ?? {};
+  const credType   = vc.credential_type ?? vc.credentialType
+    ?? (Array.isArray(vc.type) ? vc.type.find(t => t !== 'VerifiableCredential') : vc.type)
+    ?? 'VerifiableCredential';
   const dataSchema = vc.data_schema ?? vc.ardis_data_schema ?? null;
   const uiSchema   = vc.ui_schema   ?? vc.ardis_ui_schema   ?? null;
   const staticSchema = STATIC_SCHEMAS[credType] ?? null;
 
   // Title + issuer
-  const issuerName = vc.issuer?.name ?? vc.issuer ?? 'Unknown Issuer';
+  const issuerName = vc.verifier_name ?? vc.issuer?.name ?? vc.issuer ?? 'Unknown Issuer';
   document.getElementById('cred-title').textContent =
     staticSchema?.title ?? credType.replace(/Credential$/, '') + ' Credential';
   document.getElementById('cred-issuer').textContent = `Issued by ${issuerName}`;
@@ -123,12 +125,13 @@ export function renderCredential(vc) {
     }
   }
 
-  // Dates + status
-  document.getElementById('cred-issued').textContent  = fmt(vc.issuanceDate);
-  document.getElementById('cred-expires').textContent = fmt(vc.expirationDate);
+  // Dates + status — support both new (issued_at/expires_at) and legacy W3C format
+  document.getElementById('cred-issued').textContent  = fmt(vc.issued_at ?? vc.issuanceDate);
+  document.getElementById('cred-expires').textContent = fmt(vc.expires_at ?? vc.expirationDate);
 
   const now     = new Date();
-  const expires = vc.expirationDate ? new Date(vc.expirationDate) : null;
+  const expiryVal = vc.expires_at ?? vc.expirationDate;
+  const expires = expiryVal ? new Date(expiryVal) : null;
   const expired = expires && expires < now;
   const statusEl = document.getElementById('cred-status');
   statusEl.textContent = expired ? 'Expired' : 'Active';
