@@ -104,16 +104,39 @@ async function main() {
   }
 
   const shareUrl = `${API_BASE}/api/v1/ardis/public/share/${encodeURIComponent(guid)}`;
+  const ENFORCER_BASE = `${API_BASE}/api/v1/enforcer`;
+  const VIEWER_TENANT = 'CredPass-Viewer-Portal';
 
-  // OTP gate temporarily removed — shares are accessible via PIN only.
-  // Email verification will be re-enabled once the Ardis tenant email
-  // provider is configured on the backend.
+  // First fetch — may return otp_required if share was created with a recipient email.
   let rawResp;
+  let viewerToken = null;
   try {
     rawResp = await fetch(shareUrl, { headers: { Accept: 'application/json, */*' } });
   } catch (e) {
     showError('Unable to load', 'Could not reach the credential service. Check your connection.');
     return;
+  }
+
+  // Check if OTP verification is required before we can see the credential.
+  if (rawResp.ok) {
+    const contentType = rawResp.headers.get('Content-Type') || '';
+    if (contentType.includes('application/json')) {
+      const peek = await rawResp.clone().json().catch(() => null);
+      if (peek && peek.error === 'otp_required') {
+        const emailHint = peek.email_hint || '';
+        viewerToken = await runOTPFlow(ENFORCER_BASE, VIEWER_TENANT, emailHint);
+        if (!viewerToken) return; // user abandoned OTP flow
+        // Re-fetch with the viewer JWT
+        try {
+          rawResp = await fetch(shareUrl, {
+            headers: { Accept: 'application/json, */*', Authorization: `Bearer ${viewerToken}` }
+          });
+        } catch (e) {
+          showError('Unable to load', 'Could not reach the credential service. Check your connection.');
+          return;
+        }
+      }
+    }
   }
 
   const contentType = rawResp.headers.get('Content-Type') || '';
