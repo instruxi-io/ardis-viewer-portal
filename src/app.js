@@ -117,25 +117,29 @@ async function main() {
     return;
   }
 
-  // Check if OTP verification is required before we can see the credential.
-  if (rawResp.ok) {
-    const contentType = rawResp.headers.get('Content-Type') || '';
-    if (contentType.includes('application/json')) {
-      const peek = await rawResp.clone().json().catch(() => null);
-      if (peek && peek.error === 'otp_required') {
-        const emailHint = peek.email_hint || '';
-        viewerToken = await runOTPFlow(ENFORCER_BASE, VIEWER_TENANT, emailHint);
-        if (!viewerToken) return; // user abandoned OTP flow
-        // Re-fetch with the viewer JWT
-        try {
-          rawResp = await fetch(shareUrl, {
-            headers: { Accept: 'application/json, */*', Authorization: `Bearer ${viewerToken}` }
-          });
-        } catch (e) {
-          showError('Unable to load', 'Could not reach the credential service. Check your connection.');
-          return;
-        }
+  // Check if OTP verification is required.
+  // ardis-ms returns HTTP 401 with error: "otp_required" when the share
+  // requires the viewer to prove their email address via Enforcer OTP.
+  if (rawResp.status === 401) {
+    let errBody = null;
+    try { errBody = await rawResp.json(); } catch (_) {}
+    if (errBody && errBody.error === 'otp_required') {
+      const emailHint = errBody.email_hint || '';
+      viewerToken = await runOTPFlow(ENFORCER_BASE, VIEWER_TENANT, emailHint);
+      if (!viewerToken) return; // user closed the OTP flow
+      // Re-fetch the share with the viewer JWT
+      try {
+        rawResp = await fetch(shareUrl, {
+          headers: { Accept: 'application/json, */*', Authorization: `Bearer ${viewerToken}` }
+        });
+      } catch (e) {
+        showError('Unable to load', 'Could not reach the credential service. Check your connection.');
+        return;
       }
+    } else {
+      // Different 401 — fall through to normal error handling below
+      // Reconstruct a fake response so the error handler can read it
+      rawResp = new Response(JSON.stringify(errBody), { status: 401, headers: { 'Content-Type': 'application/json' } });
     }
   }
 
