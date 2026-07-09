@@ -7,6 +7,8 @@
  * never exposed to the browser, request logs, or the URL.
  */
 
+import { isEnvelope, decryptEnvelope } from './envelope.js';
+
 const API_BASE = (import.meta.env.VITE_ARDIS_API_BASE || 'https://gateway.instruxi.dev').replace(/\/+$/, '');
 
 /**
@@ -81,9 +83,17 @@ export async function fetchSchema(schemaVersion) {
  * can trigger a file-save without ever exposing a Storj-signed URL or the
  * access grant itself.
  *
- * storageKey — the storage_key value from ardis_backup_documents in the VC JSON.
+ * Encrypted shares: the server streams the ciphertext envelope as-is
+ * (application/octet-stream). When the bytes carry the "ARDIS1" magic we
+ * decrypt locally with the key from the URL fragment before building the
+ * blob, using the content type from the document metadata since the wire
+ * type is opaque. Legacy plaintext documents pass through unchanged.
+ *
+ * storageKey   - the storage_key value from ardis_backup_documents in the VC JSON.
+ * keyBytes     - raw share key from the URL fragment, or null for legacy shares.
+ * contentType  - original content type from the document metadata (encrypted path only).
  */
-export async function fetchShareDocument(guid, storageKey) {
+export async function fetchShareDocument(guid, storageKey, keyBytes = null, contentType = null) {
   const url = `${API_BASE}/api/v1/ardis/public/share/${encodeURIComponent(guid)}/documents?key=${encodeURIComponent(storageKey)}`;
 
   let res;
@@ -104,6 +114,26 @@ export async function fetchShareDocument(guid, storageKey) {
     throw err;
   }
 
-  const blob = await res.blob();
-  return URL.createObjectURL(blob);
+  const bytes = new Uint8Array(await res.arrayBuffer());
+
+  if (isEnvelope(bytes)) {
+    if (!keyBytes) {
+      const err = new Error('This link is missing its key fragment.');
+      err.code = 'missing_key';
+      throw err;
+    }
+    let plain;
+    try {
+      plain = await decryptEnvelope(bytes, keyBytes);
+    } catch {
+      const err = new Error('This document could not be decrypted. The link key may be wrong or the data corrupted.');
+      err.code = 'decrypt_failed';
+      throw err;
+    }
+    return URL.createObjectURL(new Blob([plain], { type: contentType || 'application/octet-stream' }));
+  }
+
+  // Legacy plaintext document: keep the server-reported content type.
+  const legacyType = res.headers.get('Content-Type') || 'application/octet-stream';
+  return URL.createObjectURL(new Blob([bytes], { type: legacyType }));
 }

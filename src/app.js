@@ -10,6 +10,7 @@
  */
 
 import { fetchSharedCredential, fetchShareDocument, fetchSchema } from './api.js';
+import { parseKeyFromHash, isEnvelope, decryptEnvelope } from './envelope.js';
 import { recoverSigner } from './verify.js';
 import {
   renderCredential,
@@ -148,28 +149,20 @@ async function main() {
   if (!contentType.includes('application/json')) {
     // Binary personal document
     if (!rawResp.ok) { showError('Unable to load document', `HTTP ${rawResp.status}`); return; }
-    const blob = await rawResp.blob();
-    const blobUrl = URL.createObjectURL(blob);
-    const ext = contentType.includes('pdf') ? '.pdf' : contentType.includes('image') ? '.jpg' : '';
-    document.getElementById('loading').classList.add('hidden');
-    const container = document.getElementById('credential');
-    container.classList.remove('hidden');
-    document.getElementById('cred-title').textContent = 'Shared Document';
-    document.getElementById('cred-issuer').textContent = '';
-    document.querySelector('.credential-type-icon').textContent = contentType.includes('pdf') ? '📄' : '🖼';
-    document.getElementById('cred-fields').innerHTML =
-      `<a href="${blobUrl}" download="document${ext}" style="display:inline-block;margin-top:8px;padding:10px 20px;background:var(--gold,#CBAF7C);color:#0A0F18;font-weight:700;border-radius:12px;text-decoration:none;">⬇ Download Document</a>`;
-    // Hide credential-specific metadata rows — not applicable to personal documents
-    document.getElementById('cred-issued').textContent = '';
-    document.getElementById('cred-expires').textContent = '';
-    document.getElementById('cred-status').textContent = '';
-    ['cred-issued', 'cred-expires', 'cred-status'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) {
-        const row = el.closest('.meta-row') || el.parentElement;
-        if (row) row.style.display = 'none';
+    let bytes = new Uint8Array(await rawResp.arrayBuffer());
+    let docType = contentType;
+    if (isEnvelope(bytes)) {
+      const keyBytes = parseKeyFromHash();
+      if (!keyBytes) { showMissingKeyError(); return; }
+      try {
+        bytes = await decryptEnvelope(bytes, keyBytes);
+      } catch {
+        showDecryptError();
+        return;
       }
-    });
+      docType = sniffContentType(bytes, contentType);
+    }
+    renderSharedDocument(new Blob([bytes], { type: docType }), docType);
     return;
   }
 
@@ -204,6 +197,33 @@ async function main() {
       showError('Unable to load credential', err.message || String(err));
     }
     return;
+  }
+
+  // Encrypted share (blind broker): the server returns only the ciphertext
+  // envelope as payload_b64 and never sees the plaintext. Decrypt locally
+  // with the key from the URL fragment, which is never sent to any server.
+  if (data.encrypted === true) {
+    const keyBytes = parseKeyFromHash();
+    if (!keyBytes) { showMissingKeyError(); return; }
+    let plainBytes;
+    try {
+      const cipherBytes = base64ToBytes(data.payload_b64);
+      if (!isEnvelope(cipherBytes)) throw new Error('bad envelope');
+      plainBytes = await decryptEnvelope(cipherBytes, keyBytes);
+    } catch {
+      showDecryptError();
+      return;
+    }
+    try {
+      data.credential = JSON.parse(new TextDecoder().decode(plainBytes));
+    } catch {
+      // ponytail: not-JSON means an encrypted personal document share (raw
+      // file bytes); a document that happens to parse as JSON would render
+      // as a credential. Upgrade path: an explicit share-kind metadata field.
+      const docType = sniffContentType(plainBytes, 'application/octet-stream');
+      renderSharedDocument(new Blob([plainBytes], { type: docType }), docType);
+      return;
+    }
   }
 
   const vc = data.credential;
@@ -254,7 +274,12 @@ async function main() {
   const backupDocs = vc.backup_documents ?? vc.ardis_backup_documents;
   if (Array.isArray(backupDocs) && backupDocs.length > 0) {
     const docObjects = backupDocs.map(d => ({ ...d, key: d.storage_key }));
-    renderDocuments(docObjects, (storageKey) => fetchShareDocument(guid, storageKey));
+    // Pass the fragment key and the document's own content type so encrypted
+    // envelopes can be decrypted client-side; both are ignored on legacy shares.
+    renderDocuments(docObjects, (storageKey) => {
+      const doc = docObjects.find(d => d.key === storageKey);
+      return fetchShareDocument(guid, storageKey, parseKeyFromHash(), doc?.content_type ?? null);
+    });
   }
 
   // Best-effort signer display when the server includes the wallet signature.
@@ -270,6 +295,72 @@ async function main() {
 }
 
 main();
+
+/** Decode a standard base64 string (as sent in payload_b64) to bytes. */
+function base64ToBytes(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+/**
+ * Best-effort content type for decrypted document bytes. The server sends
+ * ciphertext as application/octet-stream, so the real type is only knowable
+ * from the plaintext itself.
+ * ponytail: sniffs PDF and JPEG/PNG magic only; upgrade path is a content_type
+ * field in the share metadata.
+ */
+function sniffContentType(bytes, fallback) {
+  if (bytes.length >= 4) {
+    if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) return 'application/pdf';
+    if (bytes[0] === 0xFF && bytes[1] === 0xD8 && bytes[2] === 0xFF) return 'image/jpeg';
+    if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) return 'image/png';
+  }
+  return fallback || 'application/octet-stream';
+}
+
+function showMissingKeyError() {
+  showError(
+    'Missing decryption key',
+    'This link is missing its key fragment. Ask the sender to re-send the full link, including everything after the # symbol.',
+  );
+}
+
+function showDecryptError() {
+  showError(
+    'Unable to decrypt',
+    'This share could not be decrypted. The link key may be wrong or the data corrupted. Ask the sender for a new link.',
+  );
+}
+
+/**
+ * Renders a shared personal document as a download card. Used by both the
+ * legacy plaintext path and the client-side decrypted path.
+ */
+function renderSharedDocument(blob, contentType) {
+  const blobUrl = URL.createObjectURL(blob);
+  const ext = contentType.includes('pdf') ? '.pdf' : contentType.includes('image') ? '.jpg' : '';
+  document.getElementById('loading').classList.add('hidden');
+  const container = document.getElementById('credential');
+  container.classList.remove('hidden');
+  document.getElementById('cred-title').textContent = 'Shared Document';
+  document.getElementById('cred-issuer').textContent = '';
+  document.querySelector('.credential-type-icon').textContent = contentType.includes('pdf') ? '📄' : '🖼';
+  document.getElementById('cred-fields').innerHTML =
+    `<a href="${blobUrl}" download="document${ext}" style="display:inline-block;margin-top:8px;padding:10px 20px;background:var(--gold,#CBAF7C);color:#0A0F18;font-weight:700;border-radius:12px;text-decoration:none;">⬇ Download Document</a>`;
+  // Hide credential-specific metadata rows, not applicable to personal documents
+  document.getElementById('cred-issued').textContent = '';
+  document.getElementById('cred-expires').textContent = '';
+  document.getElementById('cred-status').textContent = '';
+  ['cred-issued', 'cred-expires', 'cred-status'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) {
+      const row = el.closest('.meta-row') || el.parentElement;
+      if (row) row.style.display = 'none';
+    }
+  });
+}
 
 /**
  * Shows the code entry gate and resolves a 9-digit share code to a GUID.
