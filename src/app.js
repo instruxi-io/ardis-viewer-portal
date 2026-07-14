@@ -98,49 +98,90 @@ async function main() {
 
   const API_BASE = (import.meta.env.VITE_ARDIS_API_BASE || 'https://gateway.instruxi.dev').replace(/\/+$/, '');
 
+  // ── Step 1: resolve GUID ──────────────────────────────────────────────────
+  // If the viewer opened a full link the GUID is in the URL path.
+  // If they only have the 9-digit code, the code-entry flow maps it to a GUID.
+  // When the viewer entered the code we already have it, so PIN step can reuse
+  // it without prompting again.
+  let enteredPin = null; // set when the user typed the code manually
   let guid = parseShareId();
   if (!guid) {
-    guid = await runCodeEntryFlow(API_BASE);
-    if (!guid) return;
+    const codeResult = await runCodeEntryFlow(API_BASE);
+    if (!codeResult) return;
+    guid = codeResult.guid;
+    enteredPin = codeResult.pin; // digits the user typed, reused as the PIN
   }
 
   const shareUrl = `${API_BASE}/api/v1/ardis/public/share/${encodeURIComponent(guid)}`;
   const ENFORCER_BASE = `${API_BASE}/api/v1/enforcer`;
   const VIEWER_TENANT = 'CredPass-Viewer-Portal';
 
-  // First fetch — may return otp_required if share was created with a recipient email.
-  let rawResp;
+  // ── Step 2: OTP gate (layer 1 — dormant until viewer provisioning is built) ─
+  // ardis-ms returns 401 { error: "otp_required" } when the share requires
+  // the viewer to prove email ownership via Enforcer OTP.
+  // Currently RequireOTP is always false server-side, so this branch never fires.
+  // It is scaffolded here so enabling OTP later only flips the server flag.
   let viewerToken = null;
+  let rawProbe;
   try {
-    rawResp = await fetch(shareUrl, { headers: { Accept: 'application/json, */*' } });
+    rawProbe = await fetch(shareUrl, { headers: { Accept: 'application/json, */*' } });
+  } catch (e) {
+    showError('Unable to load', 'Could not reach the credential service. Check your connection.');
+    return;
+  }
+  if (rawProbe.status === 401) {
+    let errBody = null;
+    try { errBody = await rawProbe.json(); } catch (_) {}
+    if (errBody && errBody.error === 'otp_required') {
+      const emailHint = errBody.email_hint || '';
+      viewerToken = await runOTPFlow(ENFORCER_BASE, VIEWER_TENANT, emailHint);
+      if (!viewerToken) return;
+    } else if (!errBody || errBody.error !== 'pin_required') {
+      // Unexpected 401 that is neither OTP nor PIN — surface it.
+      showError('Unable to load', errBody?.message || 'Authentication required.');
+      return;
+    }
+    // pin_required falls through to Step 3 below.
+  }
+
+  // ── Step 3: PIN gate (layer 2 — second factor for encrypted shares) ──────
+  // The link carries the decryption key K in its #k= fragment.
+  // The PIN gates the server releasing the ciphertext.
+  // Neither the link nor the PIN alone is sufficient to open the share.
+  // If the viewer came via code-entry, enteredPin is already known.
+  // If they came via a full link, we prompt them for the PIN now.
+  let sharePin = enteredPin;
+  if (!sharePin) {
+    sharePin = await runPinEntryFlow();
+    if (!sharePin) return; // user closed the PIN prompt
+  }
+
+  // ── Step 4: fetch the share (with OTP token + PIN) ───────────────────────
+  const fetchHeaders = { Accept: 'application/json, */*', 'X-Share-Pin': sharePin };
+  if (viewerToken) fetchHeaders['Authorization'] = `Bearer ${viewerToken}`;
+
+  let rawResp;
+  try {
+    rawResp = await fetch(shareUrl, { headers: fetchHeaders });
   } catch (e) {
     showError('Unable to load', 'Could not reach the credential service. Check your connection.');
     return;
   }
 
-  // Check if OTP verification is required.
-  // ardis-ms returns HTTP 401 with error: "otp_required" when the share
-  // requires the viewer to prove their email address via Enforcer OTP.
-  if (rawResp.status === 401) {
+  // Wrong PIN: let the viewer retry rather than leaving them stranded.
+  if (rawResp.status === 401 || rawResp.status === 403) {
     let errBody = null;
     try { errBody = await rawResp.json(); } catch (_) {}
-    if (errBody && errBody.error === 'otp_required') {
-      const emailHint = errBody.email_hint || '';
-      viewerToken = await runOTPFlow(ENFORCER_BASE, VIEWER_TENANT, emailHint);
-      if (!viewerToken) return; // user closed the OTP flow
-      // Re-fetch the share with the viewer JWT
-      try {
-        rawResp = await fetch(shareUrl, {
-          headers: { Accept: 'application/json, */*', Authorization: `Bearer ${viewerToken}` }
-        });
-      } catch (e) {
-        showError('Unable to load', 'Could not reach the credential service. Check your connection.');
-        return;
-      }
-    } else {
-      // Different 401 — fall through to normal error handling below
-      // Reconstruct a fake response so the error handler can read it
-      rawResp = new Response(JSON.stringify(errBody), { status: 401, headers: { 'Content-Type': 'application/json' } });
+    if (errBody?.error === 'pin_required' || errBody?.error === 'wrong_pin') {
+      showError(
+        'Incorrect PIN',
+        'The PIN you entered is incorrect. Please check the code sent with the link and try again.'
+      );
+      return;
+    }
+    if (errBody?.error === 'wrong_recipient') {
+      showError('Wrong recipient', 'This link was shared with a different recipient.');
+      return;
     }
   }
 
@@ -278,7 +319,7 @@ async function main() {
     // envelopes can be decrypted client-side; both are ignored on legacy shares.
     renderDocuments(docObjects, (storageKey) => {
       const doc = docObjects.find(d => d.key === storageKey);
-      return fetchShareDocument(guid, storageKey, parseKeyFromHash(), doc?.content_type ?? null);
+      return fetchShareDocument(guid, storageKey, parseKeyFromHash(), doc?.content_type ?? null, sharePin);
     });
   }
 
@@ -425,13 +466,63 @@ async function runCodeEntryFlow(apiBase) {
         }
         gate.classList.add('hidden');
         document.getElementById('loading').classList.remove('hidden');
-        resolve(guid);
+        // Return both the GUID and the raw digits so the PIN step can
+        // reuse the code the viewer already typed (no double-entry).
+        resolve({ guid, pin: digits });
       } catch {
         showErr('Could not reach the service. Check your connection.');
       } finally {
         btn.disabled = false;
         btn.textContent = 'Continue';
       }
+    }
+
+    btn.addEventListener('click', submit);
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+  });
+}
+
+/**
+ * Shows the PIN entry gate and waits for the viewer to enter the 9-digit
+ * share code as a second factor. Returns the raw digit string on success, or
+ * null if the viewer closes the prompt without entering a valid code.
+ *
+ * Called only on the full-link path; the code-entry path reuses the digits
+ * the viewer already typed via runCodeEntryFlow.
+ *
+ * OTP slot (future): when OTP is enabled this runs AFTER the OTP step, so
+ * the sequence becomes OTP (who are you) → PIN (second factor) → decrypt.
+ */
+function runPinEntryFlow() {
+  return new Promise((resolve) => {
+    const gate   = document.getElementById('pin-gate');
+    const input  = document.getElementById('pin-input');
+    const btn    = document.getElementById('pin-submit-btn');
+    const errEl  = document.getElementById('pin-error');
+
+    document.getElementById('loading').classList.add('hidden');
+    gate.classList.remove('hidden');
+    input.value = '';
+    input.focus();
+
+    function showErr(msg) { errEl.textContent = msg; errEl.classList.remove('hidden'); }
+    function clearErr()   { errEl.classList.add('hidden'); }
+
+    input.addEventListener('input', () => {
+      const digits = input.value.replace(/\D/g, '').slice(0, 9);
+      if      (digits.length <= 3) input.value = digits;
+      else if (digits.length <= 6) input.value = `${digits.slice(0,3)} ${digits.slice(3)}`;
+      else                         input.value = `${digits.slice(0,3)} ${digits.slice(3,6)} ${digits.slice(6)}`;
+      clearErr();
+    });
+
+    async function submit() {
+      clearErr();
+      const digits = input.value.replace(/\D/g, '');
+      if (digits.length !== 9) { showErr('Please enter the full 9-digit PIN.'); return; }
+      gate.classList.add('hidden');
+      document.getElementById('loading').classList.remove('hidden');
+      resolve(digits);
     }
 
     btn.addEventListener('click', submit);

@@ -93,12 +93,14 @@ export async function fetchSchema(schemaVersion) {
  * keyBytes     - raw share key from the URL fragment, or null for legacy shares.
  * contentType  - original content type from the document metadata (encrypted path only).
  */
-export async function fetchShareDocument(guid, storageKey, keyBytes = null, contentType = null) {
+export async function fetchShareDocument(guid, storageKey, keyBytes = null, contentType = null, sharePin = null) {
   const url = `${API_BASE}/api/v1/ardis/public/share/${encodeURIComponent(guid)}/documents?key=${encodeURIComponent(storageKey)}`;
+  const headers = {};
+  if (sharePin) headers['X-Share-Pin'] = sharePin;
 
   let res;
   try {
-    res = await fetch(url);
+    res = await fetch(url, { headers });
   } catch (e) {
     const err = new Error('Could not reach the document service. Check your connection and try again.');
     err.code = 'network_error';
