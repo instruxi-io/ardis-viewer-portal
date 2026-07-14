@@ -5,6 +5,12 @@ on:
     branches:
       - master      # → staging (ardis-viewer-portal.pages.dev)
       - production  # → production (when domain exists)
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: false
+        default: 'staging'
 
 jobs:
   deploy:
