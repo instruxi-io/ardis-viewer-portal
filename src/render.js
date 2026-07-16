@@ -119,9 +119,10 @@ export function renderCredential(vc) {
       fieldsEl.appendChild(_fieldRow(label, fmt(subject[key])));
     }
   } else {
-    for (const key of Object.keys(subject).filter(k => k !== 'id').slice(0, 10)) {
-      const label = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-      fieldsEl.appendChild(_fieldRow(label, fmt(subject[key])));
+    // No schema: still recurse — nested records[] must render as sections,
+    // not stringify to "[object Object]".
+    for (const key of Object.keys(subject).filter(k => k !== 'id')) {
+      _renderNode(fieldsEl, key, subject[key], {});
     }
   }
 
