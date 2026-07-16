@@ -97,7 +97,10 @@ export function renderCredential(vc) {
   document.getElementById('cred-issuer').textContent = `Issued by ${issuerName}`;
   document.querySelector('.credential-type-icon').textContent = staticSchema?.icon ?? '📋';
 
-  // Fields — prefer embedded schema, fall back to static schema, then generic
+  // Fields — prefer embedded schema, fall back to static schema, then generic.
+  // META_KEYS never render as credential content: id and disclosed_fields are
+  // provenance metadata, not fields.
+  const META_KEYS = new Set(['id', 'disclosed_fields']);
   const fieldsEl = document.getElementById('cred-fields');
   fieldsEl.innerHTML = '';
 
@@ -109,7 +112,7 @@ export function renderCredential(vc) {
       _renderNode(fieldsEl, key, subject[key], props[key] ?? {});
     }
     // Any subject keys not in schema
-    for (const key of Object.keys(subject).filter(k => k !== 'id' && !(k in props))) {
+    for (const key of Object.keys(subject).filter(k => !META_KEYS.has(k) && !(k in props))) {
       _renderNode(fieldsEl, key, subject[key], {});
     }
   } else if (staticSchema) {
@@ -121,7 +124,7 @@ export function renderCredential(vc) {
   } else {
     // No schema: still recurse — nested records[] must render as sections,
     // not stringify to "[object Object]".
-    for (const key of Object.keys(subject).filter(k => k !== 'id')) {
+    for (const key of Object.keys(subject).filter(k => !META_KEYS.has(k))) {
       _renderNode(fieldsEl, key, subject[key], {});
     }
   }
