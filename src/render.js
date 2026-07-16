@@ -90,10 +90,18 @@ export function renderCredential(vc) {
   const uiSchema   = vc.ui_schema   ?? vc.ardis_ui_schema   ?? null;
   const staticSchema = STATIC_SCHEMAS[credType] ?? null;
 
-  // Title + issuer
+  // Title + issuer. Humanise the credential_type slug into a readable title
+  // ("identity-verification" -> "Identity Verification") rather than showing
+  // the raw slug, which reads like a filename.
+  const humanize = (s) => String(s)
+    .replace(/([a-z])([A-Z])/g, '$1 $2')     // camelCase boundaries
+    .replace(/[-_]+/g, ' ')                    // hyphens/underscores
+    .replace(/\bCredential\b/gi, '')           // drop a redundant "Credential"
+    .trim()
+    .replace(/\b\w/g, (c) => c.toUpperCase());
   const issuerName = vc.verifier_name ?? vc.issuer?.name ?? vc.issuer ?? 'Unknown Issuer';
   document.getElementById('cred-title').textContent =
-    staticSchema?.title ?? credType.replace(/Credential$/, '') + ' Credential';
+    staticSchema?.title ?? humanize(credType);
   document.getElementById('cred-issuer').textContent = `Issued by ${issuerName}`;
   document.querySelector('.credential-type-icon').textContent = staticSchema?.icon ?? '📋';
 
