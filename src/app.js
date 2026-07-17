@@ -287,8 +287,10 @@ async function main() {
   renderCredential(vc);
 
   // Render professional's context notes if included with the share.
-  const notes = data.notes;
-  if (Array.isArray(notes) && notes.length > 0) {
+  // Filter blank/whitespace entries so the section never shows empty.
+  const notes = (Array.isArray(data.notes) ? data.notes : [])
+    .filter((n) => n != null && String(n).trim() !== '');
+  if (notes.length > 0) {
     const notesSection = document.createElement('div');
     notesSection.style.cssText = 'margin-top:16px;padding:12px 16px;background:rgba(203,175,124,0.08);border:1px solid rgba(203,175,124,0.25);border-radius:10px;';
     const notesTitle = document.createElement('p');
