@@ -244,6 +244,7 @@ async function main() {
   // Encrypted share (blind broker): the server returns only the ciphertext
   // envelope as payload_b64 and never sees the plaintext. Decrypt locally
   // with the key from the URL fragment, which is never sent to any server.
+  let sharedNotes = null;
   if (data.encrypted === true) {
     const keyBytes = parseKeyFromHash();
     if (!keyBytes) { showMissingKeyError(); return; }
@@ -256,6 +257,11 @@ async function main() {
       showDecryptError();
       return;
     }
+    // Notes are sealed with the same share key as the payload, in their own
+    // envelope rather than wrapped around it, so the server stores notes it
+    // cannot read. Failure here is not fatal: the credential is the thing the
+    // recipient came for, and losing the annotations should not lose the page.
+    sharedNotes = await decryptNotes(data.notes_cipher_b64, keyBytes);
     try {
       data.credential = JSON.parse(new TextDecoder().decode(plainBytes));
     } catch {
@@ -264,6 +270,9 @@ async function main() {
       // as a credential. Upgrade path: an explicit share-kind metadata field.
       const docType = sniffContentType(plainBytes, 'application/octet-stream');
       renderSharedDocument(new Blob([plainBytes], { type: docType }), docType);
+      // Documents carry notes too, and renderSharedDocument writes the same
+      // #cred-fields container, so this has to come after it.
+      renderNotes(sharedNotes ?? data.notes);
       return;
     }
   }
@@ -287,11 +296,10 @@ async function main() {
 
   renderCredential(vc);
 
-  // Render the professional's context notes. Notes ride inside the encrypted
-  // envelope, so `vc.notes` is the current source; `data.notes` is the older
-  // plaintext field on the share record, still read so shares created before
-  // the change keep rendering.
-  renderNotes(Array.isArray(vc?.notes) ? vc.notes : data.notes);
+  // Notes from the decrypted envelope when present, falling back to the share
+  // record's old plaintext field so shares created before the change still show
+  // theirs.
+  renderNotes(sharedNotes ?? data.notes);
 
   // Render active monitoring alerts (adverse actions, sanctions) if present in
   // the share response. The server includes alerts attached to this credential.
@@ -327,6 +335,24 @@ async function main() {
 main();
 
 /** Decode a standard base64 string (as sent in payload_b64) to bytes. */
+/**
+ * Opens the notes envelope with the share key. Returns null when there are no
+ * notes or they cannot be read, which the caller treats as "no notes section"
+ * rather than an error — a failed annotation must not cost the credential.
+ */
+async function decryptNotes(cipherB64, keyBytes) {
+  if (!cipherB64 || !keyBytes) return null;
+  try {
+    const bytes = base64ToBytes(cipherB64);
+    if (!isEnvelope(bytes)) return null;
+    const plain = await decryptEnvelope(bytes, keyBytes);
+    const parsed = JSON.parse(new TextDecoder().decode(plain));
+    return Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 function base64ToBytes(b64) {
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);
