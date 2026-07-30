@@ -137,6 +137,35 @@ body {
 .field-value { font-size: 14px; font-weight: 600; color: #0f172a; text-align: right; }
 .field-group-heading { font-size: 10px; font-weight: 700; color: #cbd5e1; text-transform: uppercase; letter-spacing: 0.1em; margin: 16px 0 4px; }
 
+/* ── Notes from the professional ────────────────────────────────────────────
+   These were styled inline against the app's dark palette, which put #F1F5F9
+   note text on this portal's white card: the gold heading showed and every
+   note was invisible. Kept here, in the light palette the rest of the page
+   uses, so a colour change can't silently blank the content again. */
+
+.notes-section {
+  margin-top: 20px;
+  padding: 14px 16px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-left: 3px solid #0d9488;
+  border-radius: 10px;
+}
+.notes-title {
+  font-size: 11px; font-weight: 700; color: #0d9488;
+  text-transform: uppercase; letter-spacing: 0.08em;
+  margin-bottom: 10px;
+}
+.note-item { font-size: 13px; color: #0f172a; line-height: 1.5; }
+.note-item + .note-item {
+  margin-top: 10px; padding-top: 10px; border-top: 1px solid #e2e8f0;
+}
+.note-date {
+  display: block;
+  font-size: 11px; color: #94a3b8; font-weight: 500;
+  margin-bottom: 3px;
+}
+
 /* ── Meta ──────────────────────────────────────────────────────────────────── */
 
 .meta-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 0; }

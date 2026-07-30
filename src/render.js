@@ -317,6 +317,59 @@ export function renderAlerts(alerts) {
   container.insertBefore(section, container.firstChild);
 }
 
+/// Renders the professional's context notes under the credential fields.
+///
+/// Accepts both shapes on the wire: a plain string, which is what shares
+/// created before notes moved into the encrypted envelope carry, and
+/// `{ text, createdAt }`, which is what the app sends now. An object used to
+/// fall through `String(n)` and render "[object Object]", so the shape is
+/// resolved explicitly rather than coerced.
+///
+/// Note text is author-supplied, so it goes in via textContent. Nothing here
+/// builds HTML from it.
+export function renderNotes(notes) {
+  const container = document.getElementById('cred-fields');
+  if (!container || !Array.isArray(notes)) return;
+
+  const entries = notes
+    .map((n) => (n && typeof n === 'object' ? n : { text: n }))
+    .map((n) => ({
+      text: n.text == null ? '' : String(n.text).trim(),
+      createdAt: n.createdAt ?? n.created_at ?? null,
+    }))
+    .filter((n) => n.text !== '');
+  if (entries.length === 0) return;
+
+  const section = document.createElement('div');
+  section.className = 'notes-section';
+
+  const title = document.createElement('p');
+  title.className = 'notes-title';
+  title.textContent =
+    entries.length === 1 ? 'Note from the professional' : 'Notes from the professional';
+  section.appendChild(title);
+
+  for (const entry of entries) {
+    const item = document.createElement('p');
+    item.className = 'note-item';
+
+    const when = entry.createdAt ? new Date(entry.createdAt) : null;
+    if (when && !Number.isNaN(when.getTime())) {
+      const stamp = document.createElement('span');
+      stamp.className = 'note-date';
+      stamp.textContent = when.toLocaleDateString(undefined, {
+        year: 'numeric', month: 'short', day: 'numeric',
+      });
+      item.appendChild(stamp);
+    }
+
+    item.appendChild(document.createTextNode(entry.text));
+    section.appendChild(item);
+  }
+
+  container.appendChild(section);
+}
+
 export function showSignerAddress(address) {
   document.getElementById('signer-address').textContent = address;
   document.getElementById('signature-row').classList.remove('hidden');

@@ -16,6 +16,7 @@ import {
   renderCredential,
   renderAlerts,
   renderDocuments,
+  renderNotes,
   showSignerAddress,
   showError,
   showLandingMessage,
@@ -286,25 +287,11 @@ async function main() {
 
   renderCredential(vc);
 
-  // Render professional's context notes if included with the share.
-  // Filter blank/whitespace entries so the section never shows empty.
-  const notes = (Array.isArray(data.notes) ? data.notes : [])
-    .filter((n) => n != null && String(n).trim() !== '');
-  if (notes.length > 0) {
-    const notesSection = document.createElement('div');
-    notesSection.style.cssText = 'margin-top:16px;padding:12px 16px;background:rgba(203,175,124,0.08);border:1px solid rgba(203,175,124,0.25);border-radius:10px;';
-    const notesTitle = document.createElement('p');
-    notesTitle.style.cssText = 'font-size:11px;font-weight:600;color:#CBAF7C;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:8px;';
-    notesTitle.textContent = 'Notes from Professional';
-    notesSection.appendChild(notesTitle);
-    notes.forEach(note => {
-      const p = document.createElement('p');
-      p.style.cssText = 'font-size:13px;color:#F1F5F9;margin-bottom:4px;';
-      p.textContent = note;
-      notesSection.appendChild(p);
-    });
-    document.getElementById('cred-fields').appendChild(notesSection);
-  }
+  // Render the professional's context notes. Notes ride inside the encrypted
+  // envelope, so `vc.notes` is the current source; `data.notes` is the older
+  // plaintext field on the share record, still read so shares created before
+  // the change keep rendering.
+  renderNotes(Array.isArray(vc?.notes) ? vc.notes : data.notes);
 
   // Render active monitoring alerts (adverse actions, sanctions) if present in
   // the share response. The server includes alerts attached to this credential.
