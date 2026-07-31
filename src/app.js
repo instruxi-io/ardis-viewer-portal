@@ -97,7 +97,7 @@ async function main() {
     return;
   }
 
-  const API_BASE = (import.meta.env.VITE_ARDIS_API_BASE || 'https://gateway.instruxi.dev').replace(/\/+$/, '');
+  const API_BASE = (import.meta.env.VITE_ARDIS_API_BASE || 'https://ardis-ms-ix.fly.dev').replace(/\/+$/, '');
 
   // ── Step 1: resolve GUID ──────────────────────────────────────────────────
   // If the viewer opened a full link the GUID is in the URL path.
@@ -114,7 +114,11 @@ async function main() {
   }
 
   const shareUrl = `${API_BASE}/api/v1/ardis/public/share/${encodeURIComponent(guid)}`;
-  const ENFORCER_BASE = `${API_BASE}/api/v1/enforcer`;
+  // The gateway is a different host from ardis-ms, so this cannot be derived from
+  // API_BASE. VITE_ENFORCER_BASE already includes the /api/v1/enforcer prefix and
+  // must name the same gateway ardis-ms validates the resulting JWT against.
+  const ENFORCER_BASE = (import.meta.env.VITE_ENFORCER_BASE
+    || 'https://gateway-staging.instruxi.dev/api/v1/enforcer').replace(/\/+$/, '');
   const VIEWER_TENANT = 'CredPass-Viewer-Portal';
 
   // ── Step 2: OTP gate (layer 1 — dormant until viewer provisioning is built) ─

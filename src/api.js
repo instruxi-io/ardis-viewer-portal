@@ -9,7 +9,9 @@
 
 import { isEnvelope, decryptEnvelope } from './envelope.js';
 
-const API_BASE = (import.meta.env.VITE_ARDIS_API_BASE || 'https://gateway.instruxi.dev').replace(/\/+$/, '');
+// Fallback is the staging ardis-ms, not the Enforcer gateway: every path below
+// is an /api/v1/ardis route, which the gateway does not serve.
+const API_BASE = (import.meta.env.VITE_ARDIS_API_BASE || 'https://ardis-ms-ix.fly.dev').replace(/\/+$/, '');
 
 /**
  * Fetch a shared credential by its opaque GUID.
@@ -62,7 +64,7 @@ export async function fetchSchema(schemaVersion) {
   const parts = schemaVersion.split('/');
   if (parts.length < 2) return null;
   const [verifierId, credentialType] = parts;
-  const url = `${API_BASE}/api/v1/ardis/public/display-schemas/${encodeURIComponent(verifierId)}/${encodeURIComponent(credentialType)}/latest`;
+  const url = `${API_BASE}/api/v1/ardis/public/credential-schemas/${encodeURIComponent(verifierId)}/${encodeURIComponent(credentialType)}/latest`;
   try {
     const res = await fetch(url, { headers: { Accept: 'application/json' } });
     if (!res.ok) return null;
