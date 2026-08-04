@@ -15,6 +15,7 @@ import { recoverSigner } from './verify.js';
 import {
   renderCredential,
   renderAlerts,
+  normalizeAlerts,
   renderDocuments,
   renderNotes,
   showSignerAddress,
@@ -305,10 +306,13 @@ async function main() {
   // theirs.
   renderNotes(sharedNotes ?? data.notes);
 
-  // Render active monitoring alerts (adverse actions, sanctions) if present in
-  // the share response. The server includes alerts attached to this credential.
-  const alerts = data.alerts;
-  if (Array.isArray(alerts) && alerts.length > 0) {
+  // Adverse actions and monitoring updates, from BOTH sources: the vendor's own
+  // alerts inside the credential, and any platform alerts on the share
+  // response. Only the second was read before, so a verifier reporting a
+  // revoked licence or a new sanctions hit was invisible to the employer, which
+  // is the one thing SOW 2.4(c)(ii) exists to prevent.
+  const alerts = normalizeAlerts(vc.alerts, data.alerts);
+  if (alerts.length > 0) {
     renderAlerts(alerts);
   }
 

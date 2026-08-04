@@ -279,6 +279,39 @@ export function renderDocuments(pdfObjects, fetchUrl) {
  * Alerts are sorted by severity: critical first, then warning, then info.
  * @param {Array<{type: string, severity: string, title: string, message: string, created_at: string}>} alerts
  */
+/// Brings the two alert shapes together.
+///
+/// The employer has to see adverse actions and monitoring updates (SOW
+/// 2.4(c)(ii)), and they arrive by two different routes that do not agree:
+///
+///   - the share response carries platform alerts as {title, message, severity}
+///     with severity in critical|warning|info
+///   - the credential itself carries the VENDOR's alerts as
+///     {type, summary, severity} with severity in high|medium|low, per
+///     docs/integration/fulfillment.md
+///
+/// The viewer only ever read the first, and only understood the first
+/// vocabulary, so a vendor's "license revoked" was invisible; and had it been
+/// passed through it would have rendered blank, because it carries no title or
+/// message field, and coloured blue, because "medium" is not "warning".
+export function normalizeAlerts(vcAlerts, platformAlerts) {
+  const SEVERITY = {
+    critical: 'critical', high: 'critical',
+    warning: 'warning', medium: 'warning',
+    info: 'info', low: 'info',
+  };
+  const norm = (a, fromVendor) => ({
+    title: a.title ?? a.type ?? (fromVendor ? 'Verifier alert' : 'Alert'),
+    message: a.message ?? a.summary ?? '',
+    severity: SEVERITY[String(a.severity ?? '').toLowerCase()] ?? 'info',
+    created_at: a.created_at ?? a.issued_at ?? null,
+  });
+  return [
+    ...(Array.isArray(vcAlerts) ? vcAlerts.map(a => norm(a, true)) : []),
+    ...(Array.isArray(platformAlerts) ? platformAlerts.map(a => norm(a, false)) : []),
+  ];
+}
+
 export function renderAlerts(alerts) {
   const container = document.getElementById('credential');
   if (!container) return;
