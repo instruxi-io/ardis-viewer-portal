@@ -173,6 +173,9 @@ body {
 .meta-value { font-size: 13px; font-weight: 600; }
 .status-active { color: #15803d; }
 .status-expired { color: #dc2626; }
+/* A suspended licence is not the same as an expired one: it is an active
+   adverse finding, so it must not read as a lapsed date. */
+.status-suspended { color: #b45309; font-weight: 700; }
 .mono { font-family: monospace; font-size: 11px; word-break: break-all; max-width: 60%; text-align: right; }
 
 /* ── Footer ────────────────────────────────────────────────────────────────── */

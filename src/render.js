@@ -144,10 +144,28 @@ export function renderCredential(vc) {
   const now     = new Date();
   const expiryVal = vc.expires_at ?? vc.expirationDate;
   const expires = expiryVal ? new Date(expiryVal) : null;
-  const expired = expires && expires < now;
+  // Status is the credential's own claim FIRST, the date second. This used to
+  // read the expiry date alone, so a credential the verifier had marked
+  // `suspended` rendered to the employer as a green "Active" for as long as its
+  // expiry was in the future. That is the single worst thing this page can get
+  // wrong: the employer is here to find out whether the licence is good.
+  // Vocabulary is current | expired | suspended, per docs/integration/fulfillment.md.
+  const expiredByDate = expires && expires < now;
+  const claimed = String(vc.status ?? '').toLowerCase();
+  let statusText, statusClass;
+  if (claimed === 'suspended') {
+    statusText = 'Suspended';
+    statusClass = 'status-suspended';
+  } else if (claimed === 'expired' || expiredByDate) {
+    statusText = 'Expired';
+    statusClass = 'status-expired';
+  } else {
+    statusText = 'Active';
+    statusClass = 'status-active';
+  }
   const statusEl = document.getElementById('cred-status');
-  statusEl.textContent = expired ? 'Expired' : 'Active';
-  statusEl.className   = `meta-value ${expired ? 'status-expired' : 'status-active'}`;
+  statusEl.textContent = statusText;
+  statusEl.className   = `meta-value ${statusClass}`;
 
   document.getElementById('credential').classList.remove('hidden');
   document.getElementById('loading').classList.add('hidden');
