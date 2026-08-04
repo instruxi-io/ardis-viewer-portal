@@ -27,6 +27,11 @@ jobs:
 
       - run: npm ci
 
+      # Envelope parity with the Flutter app, and the no-markup-sinks guard.
+      # A regression in either ships silently otherwise.
+      - name: Checks
+        run: npm run check
+
       - name: Build
         run: npm run build
         env:

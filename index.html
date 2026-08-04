@@ -130,8 +130,11 @@
           <span class="brand-name">Ardis</span>
           <span class="dev-badge">DEV</span>
         </div>
+        <!-- States only what is actually checked: the share carries a valid
+             wallet signature bound to this share. It is NOT an issuer-verified
+             claim, so it must not say "Cryptographically Verified". -->
         <div id="verification-badge" class="badge badge-verified hidden">
-          <span>✓</span> Cryptographically Verified
+          <span>✓</span> Signature valid for this share
         </div>
       </header>
 

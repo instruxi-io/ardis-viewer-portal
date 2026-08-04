@@ -324,12 +324,27 @@ async function main() {
     });
   }
 
-  // Best-effort signer display when the server includes the wallet signature.
+  // Wallet signature over the share. Both halves come from the same server
+  // response, so recovering an address proves nothing on its own -- any
+  // self-consistent pair recovers to something. The only claim we can make
+  // client-side is that the signed payload refers to THIS share, so bind it
+  // before showing anything, and never show it when the binding fails.
+  //
+  // ponytail: this authenticates the share, not the issuer. Ceiling: it cannot
+  // tell a legitimate wallet from an attacker's, because the viewer has no
+  // trusted record of the professional's address. Upgrade path is verifying
+  // vc.proof against GET /public/verifier-keys (itself signed) the way the
+  // Flutter app's vc_verifier.dart does.
   const sig = data.signature;
   if (sig && sig.payload && sig.value) {
     try {
       const signer = recoverSigner(sig.payload, sig.value);
-      if (signer) showSignerAddress(signer);
+      let signed;
+      try { signed = JSON.parse(sig.payload); } catch { signed = null; }
+      const boundToThisShare = !!signed
+        && (!signed.share_id || signed.share_id === guid)
+        && (!signed.credential_id || !vc.id || signed.credential_id === vc.id);
+      if (signer && boundToThisShare) showSignerAddress(signer);
     } catch {
       /* signature display is non-fatal */
     }
@@ -407,8 +422,14 @@ function renderSharedDocument(blob, contentType) {
   document.getElementById('cred-title').textContent = 'Shared Document';
   document.getElementById('cred-issuer').textContent = '';
   document.querySelector('.credential-type-icon').textContent = contentType.includes('pdf') ? '📄' : '🖼';
-  document.getElementById('cred-fields').innerHTML =
-    `<a href="${blobUrl}" download="document${ext}" style="display:inline-block;margin-top:8px;padding:10px 20px;background:var(--gold,#CBAF7C);color:#0A0F18;font-weight:700;border-radius:12px;text-decoration:none;">⬇ Download Document</a>`;
+  const fieldsEl = document.getElementById('cred-fields');
+  fieldsEl.replaceChildren();
+  const dl = document.createElement('a');
+  dl.href = blobUrl;                       // same-origin blob: URL we created
+  dl.download = `document${ext}`;          // ext derives from a server-declared type
+  dl.style.cssText = 'display:inline-block;margin-top:8px;padding:10px 20px;background:var(--gold,#CBAF7C);color:#0A0F18;font-weight:700;border-radius:12px;text-decoration:none;';
+  dl.textContent = '⬇ Download Document';
+  fieldsEl.appendChild(dl);
   // Hide credential-specific metadata rows, not applicable to personal documents
   document.getElementById('cred-issued').textContent = '';
   document.getElementById('cred-expires').textContent = '';

@@ -156,7 +156,16 @@ export function renderCredential(vc) {
 function _fieldRow(label, value) {
   const row = document.createElement('div');
   row.className = 'field-row';
-  row.innerHTML = `<span class="field-label">${label}</span><span class="field-value">${value}</span>`;
+  // Built as nodes, never as markup: label and value are vendor-authored
+  // credential content, and the share key K lives in location.hash where any
+  // injected script could read it.
+  const labelEl = document.createElement('span');
+  labelEl.className = 'field-label';
+  labelEl.textContent = label;
+  const valueEl = document.createElement('span');
+  valueEl.className = 'field-value';
+  valueEl.textContent = value;
+  row.append(labelEl, valueEl);
   return row;
 }
 
@@ -302,14 +311,28 @@ export function renderAlerts(alerts) {
     const date = alert.created_at
       ? new Date(alert.created_at).toLocaleDateString(undefined, { year:'numeric', month:'short', day:'numeric' })
       : '';
-    el.innerHTML = `
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-        <span>${icon}</span>
-        <strong style="font-size:14px">${alert.title}</strong>
-        ${date ? `<span style="margin-left:auto;font-size:11px;opacity:0.6">${date}</span>` : ''}
-      </div>
-      ${alert.message ? `<p style="margin:0;font-size:13px;opacity:0.8">${alert.message}</p>` : ''}
-    `;
+    // Nodes, not markup: alert.title/message are vendor-authored. See _fieldRow.
+    const head = document.createElement('div');
+    head.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:4px';
+    const iconEl = document.createElement('span');
+    iconEl.textContent = icon;
+    const titleEl = document.createElement('strong');
+    titleEl.style.fontSize = '14px';
+    titleEl.textContent = alert.title ?? '';
+    head.append(iconEl, titleEl);
+    if (date) {
+      const dateEl = document.createElement('span');
+      dateEl.style.cssText = 'margin-left:auto;font-size:11px;opacity:0.6';
+      dateEl.textContent = date;
+      head.appendChild(dateEl);
+    }
+    el.appendChild(head);
+    if (alert.message) {
+      const msgEl = document.createElement('p');
+      msgEl.style.cssText = 'margin:0;font-size:13px;opacity:0.8';
+      msgEl.textContent = alert.message;
+      el.appendChild(msgEl);
+    }
     section.appendChild(el);
   }
 
