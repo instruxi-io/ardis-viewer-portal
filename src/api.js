@@ -55,7 +55,7 @@ export async function fetchSharedCredential(guid) {
 
 /**
  * Fetch a credential display schema from ardis-ms.
- * schemaVersion format: "{verifierId}/{credentialType}/{version}" e.g. "pmacedoflores0/license/v1"
+ * schemaVersion format: "{verifierId}/{credentialType}/{version}" e.g. "ardis/license/v1"
  * Fetches /latest so the most recent schema always applies.
  * Returns { data_schema, ui_schema } or null if not found.
  * Public endpoint — no auth required.

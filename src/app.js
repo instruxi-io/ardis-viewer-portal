@@ -289,7 +289,7 @@ async function main() {
   }
 
   // Fetch display schema from ardis-ms using the schema_version pointer in the VC.
-  // Format: "{verifierId}/{credentialType}/{version}" e.g. "pmacedoflores0/license/v1"
+  // Format: "{verifierId}/{credentialType}/{version}" e.g. "ardis/license/v1"
   const schemaVersion = vc.schema_version ?? vc.ardis_schema_version;
   if (schemaVersion && !vc.data_schema) {
     const schema = await fetchSchema(schemaVersion);
