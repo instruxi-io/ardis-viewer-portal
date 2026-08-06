@@ -499,3 +499,46 @@ export function showLandingMessage({ title, body, ctaLabel, deepLink, kind }) {
     }, 900);
   }
 }
+
+/**
+ * Shows the issuer verdict required by SOW 2.4(c)(i): whether the credential
+ * itself was signed by the verifier it names, as distinct from whether this
+ * share was authorised by the professional.
+ *
+ * Only a checked signature is allowed to look green. "Not signed" and
+ * "fields withheld" are neutral rather than red, because neither means the
+ * document is suspect, and colouring them as failures would train employers
+ * to ignore the one state that does mean something is wrong.
+ */
+export function renderIssuerVerdict({ status, detail }) {
+  const el = document.getElementById('issuer-verdict');
+  if (!el) return;
+
+  const look = {
+    valid:   { cls: 'issuer-ok',      icon: '✓', title: 'Issuer verified' },
+    invalid: { cls: 'issuer-bad',     icon: '✕', title: 'Issuer signature does not match' },
+    unsigned:{ cls: 'issuer-neutral', icon: '•', title: 'Not signed by the verifier' },
+    partial: { cls: 'issuer-neutral', icon: '•', title: 'Partial disclosure, issuer signature not applicable' },
+    unknown: { cls: 'issuer-neutral', icon: '•', title: 'Unrecognised issuer' },
+    error:   { cls: 'issuer-neutral', icon: '•', title: 'Issuer signature unreadable' },
+  }[status] || { cls: 'issuer-neutral', icon: '•', title: 'Issuer not checked' };
+
+  el.className = `issuer ${look.cls}`;
+  el.replaceChildren();
+
+  const head = document.createElement('div');
+  head.className = 'issuer-head';
+  const ic = document.createElement('span');
+  ic.className = 'issuer-icon';
+  ic.textContent = look.icon;
+  const t = document.createElement('strong');
+  t.textContent = look.title;
+  head.append(ic, t);
+
+  const p = document.createElement('p');
+  p.className = 'issuer-detail';
+  p.textContent = detail;
+
+  el.append(head, p);
+  el.hidden = false;
+}

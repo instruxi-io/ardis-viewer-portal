@@ -340,3 +340,19 @@ body {
   margin-top: 12px;
   line-height: 1.5;
 }
+
+/* Issuer verdict (SOW 2.4(c)(i)). Only a checked signature is green; the
+   states that mean "cannot be checked" are neutral, so the red state keeps
+   its meaning. */
+.issuer {
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+}
+.issuer-head { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.issuer-icon { font-weight: 700; }
+.issuer-detail { margin: 6px 0 0; font-size: 13px; line-height: 1.5; opacity: .85; }
+.issuer-ok      { background: #dcfce7; border-color: #86efac; color: #14532d; }
+.issuer-bad     { background: #fee2e2; border-color: #fca5a5; color: #7f1d1d; }
+.issuer-neutral { background: #f1f5f9; border-color: #e2e8f0; color: #334155; }

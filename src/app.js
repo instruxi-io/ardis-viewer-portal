@@ -12,6 +12,7 @@
 import { fetchSharedCredential, fetchShareDocument, fetchSchema } from './api.js';
 import { parseKeyFromHash, isEnvelope, decryptEnvelope } from './envelope.js';
 import { recoverSigner } from './verify.js';
+import { verifyIssuer } from './issuer.js';
 import {
   renderCredential,
   renderAlerts,
@@ -21,6 +22,7 @@ import {
   showSignerAddress,
   showError,
   showLandingMessage,
+  renderIssuerVerdict,
 } from './render.js';
 
 /**
@@ -300,6 +302,11 @@ async function main() {
   }
 
   renderCredential(vc);
+
+  // SOW 2.4(c)(i): the viewer must show a Valid/Invalid status for the
+  // document, not just render it. Awaited so the verdict is on screen with the
+  // credential rather than appearing a moment later.
+  renderIssuerVerdict(await verifyIssuer(vc));
 
   // Notes from the decrypted envelope when present, falling back to the share
   // record's old plaintext field so shares created before the change still show
