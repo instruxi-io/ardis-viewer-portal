@@ -437,11 +437,50 @@ export function renderNotes(notes) {
       item.appendChild(stamp);
     }
 
-    item.appendChild(document.createTextNode(entry.text));
+    appendTextWithLinks(item, entry.text);
     section.appendChild(item);
   }
 
   container.appendChild(section);
+}
+
+/// Appends note text, turning any https link in it into one you can click.
+///
+/// Professionals paste links into notes: a supporting document they have
+/// shared, or another credential. As plain text the recipient had to select a
+/// long URL by hand, and the fragment after the # is the part that carries the
+/// decryption key, so a selection that stopped early opened nothing.
+///
+/// Built as DOM nodes with textContent, never innerHTML, and only https is
+/// linkified: note text comes from a person and must never be able to inject
+/// markup or a javascript: target.
+function appendTextWithLinks(el, text) {
+  const source = String(text ?? '');
+  const pattern = /https:\/\/[^\s<>"']+/g;
+  let last = 0;
+  for (const match of source.matchAll(pattern)) {
+    if (match.index > last) {
+      el.appendChild(document.createTextNode(source.slice(last, match.index)));
+    }
+    const href = match[0];
+    let url = null;
+    try { url = new URL(href); } catch { url = null; }
+    if (url && url.protocol === 'https:') {
+      const a = document.createElement('a');
+      a.href = url.href;
+      a.textContent = href;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.className = 'note-link';
+      el.appendChild(a);
+    } else {
+      el.appendChild(document.createTextNode(href));
+    }
+    last = match.index + href.length;
+  }
+  if (last < source.length) {
+    el.appendChild(document.createTextNode(source.slice(last)));
+  }
 }
 
 export function showSignerAddress(address) {
