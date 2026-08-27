@@ -235,7 +235,13 @@ async function main() {
     data = body.data;
   } catch (err) {
     if (err.status === 404 || err.code === 'not_found') {
-      showError('Link not found', 'This credential link does not exist. Check that you copied the full link.');
+      // Withdrawing a share deletes it, so a withdrawn link and a mistyped one
+      // are the same 404 here. The old wording picked the wrong one of the two
+      // and told the recipient they had copied it wrong, which is exactly what
+      // an employer sees the moment a professional demonstrates "watch me pull
+      // this back". Cover both, blame neither.
+      showError('This link no longer works',
+        'It may have been withdrawn by the person who sent it, or it may have expired. Ask them to send a new one.');
     } else if (err.code === 'already_viewed') {
       showError('Link already used', 'This is a single-use link and it has already been opened.');
     } else if (err.status === 410 || err.code === 'expired') {
