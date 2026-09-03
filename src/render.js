@@ -53,24 +53,35 @@ const STATIC_SCHEMAS = {
 // before — an employer in New York read a licence issued on the 14th as the
 // 13th. Render those in UTC and leave real timestamps to render locally.
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+// A full instant: a date followed by a time. Kept separate from DATE_ONLY
+// because the two are formatted differently — an instant is converted to the
+// viewer's own clock, a calendar day is not.
+const TIMESTAMP = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/;
 
 export function fmt(val, format) {
   // Not `!val`: 0 and false are answers, and both used to print as "no data".
   if (val === null || val === undefined || val === '') return '—';
   if (typeof val === 'boolean') return val ? 'Yes' : 'No';
   const str = String(val);
-  const isDate = format === 'date' || format === 'date-time' || DATE_ONLY.test(str);
+  const dateOnly = DATE_ONLY.test(str);
+  const timestamp = TIMESTAMP.test(str);
+  const isDate = format === 'date' || format === 'date-time' || dateOnly || timestamp;
   if (isDate) {
     const d = new Date(str);
     // A field that merely looks like a date but is not one (a reference number,
     // a version) used to render the words "Invalid Date".
     if (Number.isNaN(d.getTime())) return str;
-    const dateOnly = DATE_ONLY.test(str);
-    const opts = format === 'date-time' && !dateOnly
+    // "Issued" and "Expires" are called with no format argument, so the shape
+    // of the value has to decide. Matching only date-only strings printed a
+    // raw RFC3339 timestamp on the employer's page.
+    const withTime = timestamp && format !== 'date';
+    const opts = withTime
       ? { year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }
       : { year: 'numeric', month: 'long', day: 'numeric' };
     if (dateOnly) opts.timeZone = 'UTC';
-    return d.toLocaleDateString('en-US', opts);
+    return withTime
+      ? d.toLocaleString('en-US', opts)
+      : d.toLocaleDateString('en-US', opts);
   }
   return str;
 }
@@ -106,7 +117,7 @@ export function credentialStatus(vc, now = new Date()) {
         : expiryVal)
     : null;
   const expiredByDate = expires && expires < now;
-  const claimed = String(vc.status ?? '').toLowerCase();
+  const claimed = String(vc.status ?? '').trim().toLowerCase();
   if (claimed === 'suspended') {
     return { statusText: 'Suspended', statusClass: 'status-suspended' };
   }
