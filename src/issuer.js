@@ -38,19 +38,24 @@ export const IssuerStatus = {
 
 let keyCache = null;
 
-/** Registered verifier public keys, keyed by verifier_id. Cached per page. */
+/**
+ * Registered verifier public keys, keyed by verifier_id. Cached per page.
+ * Returns null when the directory could not be reached — an empty object would
+ * be indistinguishable from "this issuer has no key", which downgraded a
+ * perfectly good credential to "unknown issuer" on a dropped request.
+ */
 export async function fetchVerifierKeys() {
   if (keyCache) return keyCache;
   try {
     const res = await fetch(`${API_BASE}/api/v1/ardis/public/verifier-keys`, {
       headers: { Accept: 'application/json' },
     });
-    if (!res.ok) return {};
+    if (!res.ok) return null;
     const body = await res.json();
     keyCache = body.keys || {};
     return keyCache;
   } catch {
-    return {};
+    return null;
   }
 }
 
@@ -86,6 +91,14 @@ export async function verifyIssuer(doc) {
   }
 
   const keys = await fetchVerifierKeys();
+  if (keys === null) {
+    return {
+      status: IssuerStatus.ERROR,
+      verifierId,
+      detail: 'The issuer key directory could not be reached, so the signature '
+        + 'has not been checked yet. Reload to try again.',
+    };
+  }
   const expected = keys[verifierId];
   if (!expected) {
     return {

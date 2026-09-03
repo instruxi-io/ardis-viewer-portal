@@ -675,8 +675,10 @@ function runOTPFlow(enforcerBase, tenantCode, emailHint) {
     async function verifyCode() {
       clearErrors();
       const code = codeInput.value.replace(/\D/g, '').slice(0, 6);
-      if (code.length < 4) {
-        showCodeError('Please enter the full verification code.');
+      // The code is six digits. Accepting four burned a rate-limit attempt on
+      // an obviously incomplete entry and reported it as a wrong code.
+      if (code.length < 6) {
+        showCodeError('Enter all six digits of the verification code.');
         return;
       }
       verifyBtn.disabled = true;

@@ -48,17 +48,29 @@ const STATIC_SCHEMAS = {
   },
 };
 
-function fmt(val, format) {
-  if (!val) return '—';
+// A date-only value ("2026-07-14") is a calendar day, not an instant. Date
+// parses it as UTC midnight, so every viewer west of UTC was shown the day
+// before — an employer in New York read a licence issued on the 14th as the
+// 13th. Render those in UTC and leave real timestamps to render locally.
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
+export function fmt(val, format) {
+  // Not `!val`: 0 and false are answers, and both used to print as "no data".
+  if (val === null || val === undefined || val === '') return '—';
+  if (typeof val === 'boolean') return val ? 'Yes' : 'No';
   const str = String(val);
-  const isDate = format === 'date' || format === 'date-time' || /^\d{4}-\d{2}-\d{2}/.test(str);
+  const isDate = format === 'date' || format === 'date-time' || DATE_ONLY.test(str);
   if (isDate) {
-    try {
-      const opts = format === 'date-time'
-        ? { year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }
-        : { year: 'numeric', month: 'long', day: 'numeric' };
-      return new Date(val).toLocaleDateString('en-US', opts);
-    } catch { return str; }
+    const d = new Date(str);
+    // A field that merely looks like a date but is not one (a reference number,
+    // a version) used to render the words "Invalid Date".
+    if (Number.isNaN(d.getTime())) return str;
+    const dateOnly = DATE_ONLY.test(str);
+    const opts = format === 'date-time' && !dateOnly
+      ? { year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }
+      : { year: 'numeric', month: 'long', day: 'numeric' };
+    if (dateOnly) opts.timeZone = 'UTC';
+    return d.toLocaleDateString('en-US', opts);
   }
   return str;
 }
@@ -77,6 +89,41 @@ function fieldsFromArdisSchema(dataSchema, uiSchema, subject) {
       label: props[k]?.title ?? k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
       format: props[k]?.format,
     }));
+}
+
+/**
+ * The status shown to the employer, from the credential's own claim first and
+ * its expiry date second. Exported so the self-check can assert on it without
+ * a DOM: this is the single most consequential thing this page renders.
+ */
+export function credentialStatus(vc, now = new Date()) {
+  const expiryVal = vc.expires_at ?? vc.expirationDate;
+  // A date-only expiry means the licence is good through the end of that day.
+  // Parsing it as UTC midnight retired a still-valid licence up to a day early.
+  const expires = expiryVal
+    ? new Date(DATE_ONLY.test(String(expiryVal))
+        ? `${expiryVal}T23:59:59.999Z`
+        : expiryVal)
+    : null;
+  const expiredByDate = expires && expires < now;
+  const claimed = String(vc.status ?? '').toLowerCase();
+  if (claimed === 'suspended') {
+    return { statusText: 'Suspended', statusClass: 'status-suspended' };
+  }
+  if (claimed === 'expired' || expiredByDate) {
+    return { statusText: 'Expired', statusClass: 'status-expired' };
+  }
+  if (claimed === '' || claimed === 'current' || claimed === 'active' ||
+      claimed === 'valid') {
+    return { statusText: 'Active', statusClass: 'status-active' };
+  }
+  // A word this page does not recognise (revoked, lapsed, under_review) must
+  // never fall through to a green "Active". Show it as written and let the
+  // employer read the actual claim.
+  return {
+    statusText: claimed.replace(/[_-]+/g, ' ').replace(/^./, c => c.toUpperCase()),
+    statusClass: 'status-suspended',
+  };
 }
 
 export function renderCredential(vc) {
@@ -142,27 +189,7 @@ export function renderCredential(vc) {
   document.getElementById('cred-expires').textContent = fmt(vc.expires_at ?? vc.expirationDate);
 
   const now     = new Date();
-  const expiryVal = vc.expires_at ?? vc.expirationDate;
-  const expires = expiryVal ? new Date(expiryVal) : null;
-  // Status is the credential's own claim FIRST, the date second. This used to
-  // read the expiry date alone, so a credential the verifier had marked
-  // `suspended` rendered to the employer as a green "Active" for as long as its
-  // expiry was in the future. That is the single worst thing this page can get
-  // wrong: the employer is here to find out whether the licence is good.
-  // Vocabulary is current | expired | suspended, per docs/integration/fulfillment.md.
-  const expiredByDate = expires && expires < now;
-  const claimed = String(vc.status ?? '').toLowerCase();
-  let statusText, statusClass;
-  if (claimed === 'suspended') {
-    statusText = 'Suspended';
-    statusClass = 'status-suspended';
-  } else if (claimed === 'expired' || expiredByDate) {
-    statusText = 'Expired';
-    statusClass = 'status-expired';
-  } else {
-    statusText = 'Active';
-    statusClass = 'status-active';
-  }
+  const { statusText, statusClass } = credentialStatus(vc, now);
   const statusEl = document.getElementById('cred-status');
   statusEl.textContent = statusText;
   statusEl.className   = `meta-value ${statusClass}`;

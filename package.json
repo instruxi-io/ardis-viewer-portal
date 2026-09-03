@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "selfcheck": "node scripts/envelope-selfcheck.mjs",
-    "check": "node scripts/envelope-selfcheck.mjs && node scripts/issuer-selfcheck.mjs && node scripts/no-html-injection.mjs"
+    "check": "node scripts/envelope-selfcheck.mjs && node scripts/issuer-selfcheck.mjs && node scripts/render-selfcheck.mjs && node scripts/no-html-injection.mjs"
   },
   "dependencies": {
     "ethers": "^6.13.0"
