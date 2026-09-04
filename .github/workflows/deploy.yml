@@ -46,3 +46,29 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy dist --project-name=ardis-viewer-portal
+
+      # This pipeline deploys to Cloudflare. The platform hands EMPLOYERS a
+      # different host: ardis-ms VIEWER_BASE_URL points at credpass-viewer on
+      # Vercel. A green build here therefore proved nothing about what an
+      # employer opens, and viewer fixes sat undelivered behind a passing CI —
+      # which is exactly what happened on 4 September, when a day of viewer
+      # work went live on the host nobody reads.
+      #
+      # Until the two are one host, this step is the alarm. It fails the build
+      # when the URL the platform actually hands out is not serving what we
+      # just built. Fixing it means deploying to the live host as well, or
+      # repointing VIEWER_BASE_URL here and in fly.toml.
+      - name: The live viewer must serve what we just built
+        run: |
+          set -euo pipefail
+          LIVE="https://credpass-viewer.vercel.app/view"
+          BUILT="$(basename "$(ls dist/assets/main-*.js | head -1)")"
+          echo "built:  $BUILT"
+          SERVED="$(curl -fsS "$LIVE" | grep -oE 'main-[A-Za-z0-9_-]+\.js' | head -1 || true)"
+          echo "served: ${SERVED:-<none>} at $LIVE"
+          if [ "$SERVED" != "$BUILT" ]; then
+            echo "::error::$LIVE is serving '${SERVED:-nothing}', not '$BUILT'."
+            echo "::error::CI deployed to Cloudflare; employers open the URL above."
+            echo "::error::Deploy this build to that host, or repoint VIEWER_BASE_URL."
+            exit 1
+          fi
