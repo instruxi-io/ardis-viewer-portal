@@ -124,7 +124,17 @@ export async function verifyIssuer(doc) {
       ? {
           status: IssuerStatus.VALID,
           verifierId,
-          detail: `Signed by ${verifierName} and verified against their registered key.`,
+          // The verifier ID, not verifier_name. The name is free text in the
+          // document and is NOT covered by the signature, so printing it here
+          // let any genuinely-signed credential be relabelled: keep the real
+          // verifier_id so the signature still checks out, set verifier_name
+          // to a state nursing board, and the employer reads "Signed by
+          // California Board of Registered Nursing and verified against their
+          // registered key". The ID is bound, because it selects the key the
+          // signature is checked against.
+          detail: `Signature verified against the registered key for "${verifierId}". `
+            + 'The issuer name, status and dates shown above are part of the '
+            + 'document and are not covered by this signature.',
         }
       : {
           status: IssuerStatus.INVALID,

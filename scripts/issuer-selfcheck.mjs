@@ -6,6 +6,7 @@
  * Mirrors the app's algorithm exactly (lib/src/core/vc_verifier.dart):
  *   keccak256(JSON.stringify(subject) + issuanceDate), ECRecover, compare.
  */
+import { readFile } from 'node:fs/promises';
 import { ethers } from 'ethers';
 import assert from 'node:assert';
 
@@ -68,3 +69,22 @@ assert.equal(verdict({ ...base, proof: { proofValue: 'pending-cryptographic-veri
   'unsigned');
 
 console.log('issuer selfcheck: all assertions passed');
+
+// The signature covers the subject and issued_at only. verifier_name, status,
+// expires_at and credential_type are document fields outside it, so a
+// genuinely-signed credential could be relabelled: keep the real verifier_id
+// so the signature still checks out, set verifier_name to a state nursing
+// board, and the employer reads that the board signed it. The verdict must
+// name the ID the key belongs to, and must not vouch for what it did not cover.
+{
+  const { renderIssuerVerdict } = await import('../src/render.js').catch(() => ({}));
+  const src = await readFile(new URL('../src/issuer.js', import.meta.url), 'utf8');
+  assert.ok(!/Signed by \$\{verifierName\}/.test(src),
+    'the verdict must not print the unsigned verifier_name as the signer');
+  assert.ok(/registered key for "\$\{verifierId\}"/.test(src),
+    'the verdict should name the verifier id the key is registered to');
+  assert.ok(/not covered by this signature/.test(src),
+    'the verdict must say which fields the signature does not cover');
+  void renderIssuerVerdict;
+  console.log('issuer scope   ok (the verdict does not vouch for unsigned fields)');
+}
