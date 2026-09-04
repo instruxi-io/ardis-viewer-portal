@@ -309,25 +309,31 @@ async function main() {
 
   renderCredential(vc);
 
-  // SOW 2.4(c)(i): the viewer must show a Valid/Invalid status for the
-  // document, not just render it. Awaited so the verdict is on screen with the
-  // credential rather than appearing a moment later.
-  renderIssuerVerdict(await verifyIssuer(vc));
+  // Adverse actions and monitoring updates, from BOTH sources: the vendor's own
+  // alerts inside the credential, and any platform alerts on the share
+  // response. Only the second was read before, so a verifier reporting a
+  // revoked licence or a new sanctions hit was invisible to the employer, which
+  // is the one thing SOW 2.4(c)(ii) exists to prevent.
+  //
+  // Rendered here, before the issuer check, because both sources are already in
+  // memory and the issuer check is a network round trip. Ordering them the
+  // other way put a green credential with no adverse action on screen for as
+  // long as that fetch took, which on a slow connection is long enough for an
+  // employer to read it and decide.
+  const alerts = normalizeAlerts(vc.alerts, data.alerts);
+  if (alerts.length > 0) {
+    renderAlerts(alerts);
+  }
 
   // Notes from the decrypted envelope when present, falling back to the share
   // record's old plaintext field so shares created before the change still show
   // theirs.
   renderNotes(sharedNotes ?? data.notes);
 
-  // Adverse actions and monitoring updates, from BOTH sources: the vendor's own
-  // alerts inside the credential, and any platform alerts on the share
-  // response. Only the second was read before, so a verifier reporting a
-  // revoked licence or a new sanctions hit was invisible to the employer, which
-  // is the one thing SOW 2.4(c)(ii) exists to prevent.
-  const alerts = normalizeAlerts(vc.alerts, data.alerts);
-  if (alerts.length > 0) {
-    renderAlerts(alerts);
-  }
+  // SOW 2.4(c)(i): the viewer must show a Valid/Invalid status for the
+  // document, not just render it. Awaited so the verdict is on screen with the
+  // credential rather than appearing a moment later.
+  renderIssuerVerdict(await verifyIssuer(vc));
 
   // Render download buttons for any backup documents attached to this credential.
   const backupDocs = vc.backup_documents ?? vc.ardis_backup_documents;
