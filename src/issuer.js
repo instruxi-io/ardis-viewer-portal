@@ -24,7 +24,10 @@
 
 import { ethers } from 'ethers';
 
-const API_BASE = (import.meta.env.VITE_ARDIS_API_BASE || 'https://ardis-ms-ix.fly.dev')
+// Optional chaining because import.meta.env only exists under Vite, and the
+// selfcheck runs this module under plain node to test the shipped code path
+// rather than a copy of it.
+const API_BASE = (import.meta.env?.VITE_ARDIS_API_BASE || 'https://ardis-ms-ix.fly.dev')
   .replace(/\/+$/, '');
 
 export const IssuerStatus = {
@@ -117,9 +120,9 @@ export async function verifyIssuer(doc) {
   try {
     const payload = JSON.stringify(subject) + issuedAt;
     const digest = ethers.keccak256(ethers.toUtf8Bytes(payload));
-    const recovered = ethers.SigningKey.recoverPublicKey(digest, normalise(proof));
-    const ok = recovered.toLowerCase().replace(/^0x/, '')
-      === expected.toLowerCase().replace(/^0x/, '');
+    const want = expected.toLowerCase().replace(/^0x/, '');
+    const ok = candidates(proof).some((sig) => ethers.SigningKey
+      .recoverPublicKey(digest, sig).toLowerCase().replace(/^0x/, '') === want);
     return ok
       ? {
           status: IssuerStatus.VALID,
@@ -151,9 +154,15 @@ export async function verifyIssuer(doc) {
   }
 }
 
-/** Accepts 0x-prefixed or bare hex, and 64-byte sigs missing the v byte. */
-function normalise(sig) {
-  let s = sig.startsWith('0x') ? sig : `0x${sig}`;
-  if (s.length === 130) s = `${s}1b`; // 64 bytes, assume v = 27
-  return s;
+/**
+ * The signatures to try, from 0x-prefixed or bare hex. A 64-byte signature has
+ * no v byte and v cannot be derived from r and s, so both recovery values are
+ * candidates: assuming 27 reported roughly half of all such signatures as
+ * forgeries, which is the red "treat this as unverified" box shown for real
+ * tampering. Trying both costs one extra ecrecover and rejects only when
+ * neither matches.
+ */
+function candidates(sig) {
+  const body = sig.replace(/^0x/, '');
+  return body.length === 128 ? [`0x${body}1b`, `0x${body}1c`] : [`0x${body}`];
 }

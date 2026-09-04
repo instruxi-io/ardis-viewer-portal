@@ -3,12 +3,14 @@
  *
  *   1. A calendar date is the same day for every viewer, east or west of UTC.
  *   2. A status word we do not recognise never renders as a green "Active".
+ *   3. The issuer verdict is never blank while the finished card is on screen.
  *
- * Run: npm run check (plain Node 18+, no DOM needed — both functions are pure).
+ * Run: npm run check (plain Node 18+; the third check drives renderCredential
+ * against the small stub document below rather than pulling in a DOM library).
  */
 
 import assert from 'node:assert/strict';
-import { fmt, credentialStatus } from '../src/render.js';
+import { fmt, credentialStatus, renderCredential, renderIssuerVerdict } from '../src/render.js';
 
 // ── 1. Date-only values are calendar days, not instants ─────────────────────
 // The timezone comes from the environment (see the tz script in package.json).
@@ -89,5 +91,73 @@ assert.equal(
   credentialStatus({ status: 'current', expires_at: expiryDay },
     new Date('2026-07-15T00:00:01Z')).statusText,
   'Expired', 'and expired once that day is over');
+
+// ── 4. The verdict box is on screen before the card is ──────────────────────
+// renderCredential reveals a finished-looking card with a green status pill
+// while the issuer check is still in flight. If the verdict box were still
+// hidden at that instant, the page would be indistinguishable from one whose
+// check came back clean.
+//
+// ponytail: a hand-written stub document, not jsdom, because these two
+// functions only set text, classes and children. Ceiling: it knows nothing
+// about layout or CSS. Upgrade path if that ever matters is jsdom.
+class StubEl {
+  constructor() { this.classes = new Set(); this.kids = []; this.textContent = ''; this.hidden = false; }
+  get className() { return [...this.classes].join(' '); }
+  set className(v) { this.classes = new Set(String(v).split(/\s+/).filter(Boolean)); }
+  get classList() {
+    return {
+      add: (c) => this.classes.add(c),
+      remove: (c) => { this.classes.delete(c); this.onRemove?.(c); },
+      contains: (c) => this.classes.has(c),
+    };
+  }
+  get innerHTML() { return ''; }
+  set innerHTML(_) { this.kids = []; }
+  append(...n) { this.kids.push(...n); }
+  appendChild(n) { this.kids.push(n); return n; }
+  replaceChildren(...n) { this.kids = n; }
+  setAttribute() {}
+  get text() { return [this.textContent, ...this.kids.map(k => k.text)].join(' ').trim(); }
+}
+
+const byId = new Map();
+globalThis.document = {
+  getElementById(id) {
+    if (!byId.has(id)) byId.set(id, new StubEl());
+    return byId.get(id);
+  },
+  querySelector: () => new StubEl(),
+  createElement: () => new StubEl(),
+};
+
+const verdict = document.getElementById('issuer-verdict');
+verdict.hidden = true;                       // as declared in index.html
+const card = document.getElementById('credential');
+card.classes.add('hidden');
+let atReveal = null;
+card.onRemove = (c) => { if (c === 'hidden') atReveal = { hidden: verdict.hidden, text: verdict.text, cls: verdict.className }; };
+
+renderCredential({
+  credential_type: 'license',
+  data: { provider_name: 'A. Nurse' },
+  status: 'current',
+  issued_at: '2026-01-01',
+  expires_at: '2030-01-01',
+});
+
+assert.ok(atReveal, 'renderCredential must reveal the card');
+assert.equal(atReveal.hidden, false,
+  'the issuer verdict must be on screen before the card is, not after the check returns');
+assert.match(atReveal.text, /issuer signature/i,
+  'the pending verdict must say the issuer check is still running');
+assert.ok(!atReveal.cls.includes('issuer-ok'),
+  'an unfinished check must never look verified');
+
+// And the real verdict replaces it rather than stacking under it.
+renderIssuerVerdict({ status: 'invalid', detail: 'Signature does not match.' });
+assert.ok(verdict.className.includes('issuer-bad'));
+assert.ok(!verdict.text.match(/appears here in a moment/),
+  'the pending copy must not survive the real verdict');
 
 console.log(`render selfcheck: all assertions passed (TZ=${process.env.TZ || 'system'})`);

@@ -5,6 +5,37 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Ardis Credential Viewer</title>
   <link rel="stylesheet" href="/src/styles.css" />
+  <noscript><style>#loading .spinner, #loading .loading-text { display: none; }</style></noscript>
+
+  <script>
+    // The spinner is the only thing painted before the module runs, so a module
+    // that never loads or a first fetch that never returns leaves the viewer
+    // staring at it with nothing to act on. Watch only until the module paints
+    // its first screen: once #loading has been hidden once the module is alive
+    // and owns every state after that, including the spinner it puts back up
+    // while verifying a code.
+    //
+    // ponytail: a one-second poll instead of a MutationObserver, because the
+    // check is two property reads and it stops itself on the first painted
+    // screen. Upgrade path if this ever needs to react faster than a second is
+    // an observer on the class attribute.
+    addEventListener('DOMContentLoaded', function () {
+      var loading = document.getElementById('loading');
+      var ticksLeft = 15;
+      var poll = setInterval(function () {
+        if (loading.classList.contains('hidden')) return clearInterval(poll);
+        if (--ticksLeft > 0) return;
+        clearInterval(poll);
+        document.getElementById('error-title').textContent =
+          'This credential did not load';
+        document.getElementById('error-body').textContent =
+          'The viewer did not finish starting up. Reload the page to try ' +
+          'again, and ask for a new link if it keeps happening.';
+        loading.classList.add('hidden');
+        document.getElementById('error').classList.remove('hidden');
+      }, 1000);
+    });
+  </script>
 </head>
 <body>
   <div id="app">
@@ -12,6 +43,10 @@
     <div id="loading" class="center-screen">
       <div class="spinner"></div>
       <p class="loading-text">Loading credential…</p>
+      <noscript>
+        <p>JavaScript is required to view this credential. Open this link in
+        Safari or Chrome with JavaScript turned on.</p>
+      </noscript>
     </div>
 
     <!-- Error state -->

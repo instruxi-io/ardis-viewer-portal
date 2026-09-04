@@ -25,6 +25,22 @@ import {
   renderIssuerVerdict,
 } from './render.js';
 
+// Every fetch below sits between the employer and the credential, so none of
+// them may hang the page. A service that accepts the connection and then goes
+// quiet never rejects on its own, and the viewer is left on a spinner forever.
+const REQUEST_TIMEOUT_MS = 20000;
+
+/**
+ * Body copy for a failed fetch. A timeout and a dead connection both arrive
+ * here as a rejected promise, and telling someone with working wifi to check
+ * their connection sends them off to fix the wrong thing.
+ */
+function netErrorBody(err, service) {
+  return err?.name === 'TimeoutError'
+    ? `The ${service} did not respond in time. Please try again in a moment.`
+    : `Could not reach the ${service}. Check your connection.`;
+}
+
 /**
  * Extract the share GUID from the URL. Only /view/{guid} (or ?guid=...) is a
  * credential-fetch path. Every other route is a landing page (Stripe success,
@@ -130,11 +146,15 @@ async function main() {
   // Currently RequireOTP is always false server-side, so this branch never fires.
   // It is scaffolded here so enabling OTP later only flips the server flag.
   let viewerToken = null;
+  let pinRequired = false;
   let rawProbe;
   try {
-    rawProbe = await fetch(shareUrl, { headers: { Accept: 'application/json, */*' } });
+    rawProbe = await fetch(shareUrl, {
+      headers: { Accept: 'application/json, */*' },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
   } catch (e) {
-    showError('Unable to load', 'Could not reach the credential service. Check your connection.');
+    showError('Unable to load', netErrorBody(e, 'credential service'));
     return;
   }
   if (rawProbe.status === 401) {
@@ -144,12 +164,13 @@ async function main() {
       const emailHint = errBody.email_hint || '';
       viewerToken = await runOTPFlow(ENFORCER_BASE, VIEWER_TENANT, emailHint);
       if (!viewerToken) return;
-    } else if (!errBody || errBody.error !== 'pin_required') {
+    } else if (errBody?.error === 'pin_required') {
+      pinRequired = true;
+    } else {
       // Unexpected 401 that is neither OTP nor PIN — surface it.
       showError('Unable to load', errBody?.message || 'Authentication required.');
       return;
     }
-    // pin_required falls through to Step 3 below.
   }
 
   // ── Step 3: PIN gate (layer 2 — second factor for encrypted shares) ──────
@@ -157,40 +178,55 @@ async function main() {
   // The PIN gates the server releasing the ciphertext.
   // Neither the link nor the PIN alone is sufficient to open the share.
   // If the viewer came via code-entry, enteredPin is already known.
-  // If they came via a full link, we prompt them for the PIN now.
+  // If they came via a full link, we prompt only when the probe above says the
+  // server actually wants a PIN. Prompting unconditionally parked the viewer of
+  // a plaintext share in front of a gate for a code that was never issued, with
+  // nothing on screen to get them past it. An OTP-gated share answers
+  // otp_required first and pin_required only on the next request, so that case
+  // is picked up by the loop below instead.
   let sharePin = enteredPin;
-  if (!sharePin) {
+  if (!sharePin && pinRequired) {
     sharePin = await runPinEntryFlow();
     if (!sharePin) return; // user closed the PIN prompt
   }
 
   // ── Step 4: fetch the share (with OTP token + PIN) ───────────────────────
-  const fetchHeaders = { Accept: 'application/json, */*', 'X-Share-Pin': sharePin };
-  if (viewerToken) fetchHeaders['Authorization'] = `Bearer ${viewerToken}`;
-
+  // Looped, because the likeliest reason to be here with a rejected PIN is one
+  // mistyped digit. Ending the session on the error screen is unrecoverable:
+  // showError hides the gate for good and the link is often single-use, so the
+  // employer's only route back is asking the professional to re-share.
   let rawResp;
-  try {
-    rawResp = await fetch(shareUrl, { headers: fetchHeaders });
-  } catch (e) {
-    showError('Unable to load', 'Could not reach the credential service. Check your connection.');
-    return;
-  }
+  for (;;) {
+    const fetchHeaders = { Accept: 'application/json, */*' };
+    if (sharePin) fetchHeaders['X-Share-Pin'] = sharePin;
+    if (viewerToken) fetchHeaders['Authorization'] = `Bearer ${viewerToken}`;
 
-  // Wrong PIN: let the viewer retry rather than leaving them stranded.
-  if (rawResp.status === 401 || rawResp.status === 403) {
-    let errBody = null;
-    try { errBody = await rawResp.json(); } catch (_) {}
-    if (errBody?.error === 'pin_required' || errBody?.error === 'wrong_pin') {
-      showError(
-        'Incorrect PIN',
-        'The PIN you entered is incorrect. Please check the code sent with the link and try again.'
-      );
+    try {
+      rawResp = await fetch(shareUrl, {
+        headers: fetchHeaders,
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch (e) {
+      showError('Unable to load', netErrorBody(e, 'credential service'));
       return;
     }
-    if (errBody?.error === 'wrong_recipient') {
-      showError('Wrong recipient', 'This link was shared with a different recipient.');
-      return;
+
+    if (rawResp.status === 401 || rawResp.status === 403) {
+      let errBody = null;
+      try { errBody = await rawResp.json(); } catch (_) {}
+      if (errBody?.error === 'pin_required' || errBody?.error === 'wrong_pin') {
+        sharePin = await runPinEntryFlow(errBody.error === 'wrong_pin'
+          ? 'Incorrect PIN. Check the code sent with the link and try again.'
+          : null);
+        if (!sharePin) return;
+        continue;
+      }
+      if (errBody?.error === 'wrong_recipient') {
+        showError('Wrong recipient', 'This link was shared with a different recipient.');
+        return;
+      }
     }
+    break;
   }
 
   const contentType = rawResp.headers.get('Content-Type') || '';
@@ -299,8 +335,15 @@ async function main() {
   // Fetch display schema from ardis-ms using the schema_version pointer in the VC.
   // Format: "{verifierId}/{credentialType}/{version}" e.g. "ardis/license/v1"
   const schemaVersion = vc.schema_version ?? vc.ardis_schema_version;
+  // The schema only relabels fields (render.js falls back to generic keys), so
+  // it must never be the reason the credential stays behind a spinner.
+  // ponytail: the losing fetch is abandoned, not aborted, because bounding the
+  // request itself belongs in api.js fetchSchema as an AbortSignal.timeout.
   if (schemaVersion && !vc.data_schema) {
-    const schema = await fetchSchema(schemaVersion);
+    const schema = await Promise.race([
+      fetchSchema(schemaVersion),
+      new Promise((r) => setTimeout(() => r(null), 4000)),
+    ]);
     if (schema) {
       vc.data_schema = schema.data_schema;
       vc.ui_schema   = schema.ui_schema ?? {};
@@ -512,7 +555,8 @@ async function runCodeEntryFlow(apiBase) {
       btn.disabled = true;
       btn.textContent = 'Looking up…';
       try {
-        const resp = await fetch(`${apiBase}/api/v1/ardis/public/share/code/${digits}`);
+        const resp = await fetch(`${apiBase}/api/v1/ardis/public/share/code/${digits}`,
+          { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
         const body = await resp.json().catch(() => ({}));
         if (resp.status === 404) {
           showErr('That code was not found or has expired.');
@@ -532,8 +576,8 @@ async function runCodeEntryFlow(apiBase) {
         // Return both the GUID and the raw digits so the PIN step can
         // reuse the code the viewer already typed (no double-entry).
         resolve({ guid, pin: digits });
-      } catch {
-        showErr('Could not reach the service. Check your connection.');
+      } catch (e) {
+        showErr(netErrorBody(e, 'service'));
       } finally {
         btn.disabled = false;
         btn.textContent = 'Continue';
@@ -553,10 +597,15 @@ async function runCodeEntryFlow(apiBase) {
  * Called only on the full-link path; the code-entry path reuses the digits
  * the viewer already typed via runCodeEntryFlow.
  *
+ * Re-entered after the server rejects a PIN, so errMsg carries that rejection
+ * onto the gate. Handlers are assigned rather than added for the same reason:
+ * an added listener from the previous pass would still hold the previous
+ * promise's resolve and swallow the retry.
+ *
  * OTP slot (future): when OTP is enabled this runs AFTER the OTP step, so
  * the sequence becomes OTP (who are you) → PIN (second factor) → decrypt.
  */
-function runPinEntryFlow() {
+function runPinEntryFlow(errMsg) {
   return new Promise((resolve) => {
     const gate   = document.getElementById('pin-gate');
     const input  = document.getElementById('pin-input');
@@ -571,13 +620,15 @@ function runPinEntryFlow() {
     function showErr(msg) { errEl.textContent = msg; errEl.classList.remove('hidden'); }
     function clearErr()   { errEl.classList.add('hidden'); }
 
-    input.addEventListener('input', () => {
+    if (errMsg) showErr(errMsg); else clearErr();
+
+    input.oninput = () => {
       const digits = input.value.replace(/\D/g, '').slice(0, 9);
       if      (digits.length <= 3) input.value = digits;
       else if (digits.length <= 6) input.value = `${digits.slice(0,3)} ${digits.slice(3)}`;
       else                         input.value = `${digits.slice(0,3)} ${digits.slice(3,6)} ${digits.slice(6)}`;
       clearErr();
-    });
+    };
 
     async function submit() {
       clearErr();
@@ -588,8 +639,8 @@ function runPinEntryFlow() {
       resolve(digits);
     }
 
-    btn.addEventListener('click', submit);
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    btn.onclick = submit;
+    input.onkeydown = (e) => { if (e.key === 'Enter') submit(); };
   });
 }
 
@@ -654,6 +705,7 @@ function runOTPFlow(enforcerBase, tenantCode, emailHint) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email, tenant_code: tenantCode }),
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });
         if (!res.ok) {
           const b = await res.json().catch(() => ({}));
@@ -669,8 +721,8 @@ function runOTPFlow(enforcerBase, tenantCode, emailHint) {
         stepEmail.classList.add('hidden');
         stepCode.classList.remove('hidden');
         codeInput.focus();
-      } catch {
-        showEmailError('Could not reach the verification service. Check your connection.');
+      } catch (e) {
+        showEmailError(netErrorBody(e, 'verification service'));
       } finally {
         sendBtn.disabled = false;
         emailInput.disabled = false;
@@ -695,6 +747,7 @@ function runOTPFlow(enforcerBase, tenantCode, emailHint) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ email: verifiedEmail, otp: code, tenant_code: tenantCode }),
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });
         const body = await res.json().catch(() => ({}));
         if (!res.ok) {
@@ -714,8 +767,8 @@ function runOTPFlow(enforcerBase, tenantCode, emailHint) {
         gate.classList.add('hidden');
         document.getElementById('loading').classList.remove('hidden');
         resolve(token);
-      } catch {
-        showCodeError('Could not reach the verification service. Check your connection.');
+      } catch (e) {
+        showCodeError(netErrorBody(e, 'verification service'));
       } finally {
         verifyBtn.disabled = false;
         codeInput.disabled = false;

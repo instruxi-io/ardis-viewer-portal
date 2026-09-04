@@ -133,9 +133,28 @@ body {
 .fields-grid { display: flex; flex-direction: column; gap: 12px; }
 
 .field-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
-.field-label { font-size: 12px; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; }
-.field-value { font-size: 14px; font-weight: 600; color: #0f172a; text-align: right; }
-.field-group-heading { font-size: 10px; font-weight: 700; color: #cbd5e1; text-transform: uppercase; letter-spacing: 0.1em; margin: 16px 0 4px; }
+/* Vendor field keys become labels verbatim, so they run long
+   ("Non Disciplinary Restrictions"). Nowrap plus the flex default of
+   min-width:auto let one label claim the whole row and squeeze the value off
+   the card on a phone; both sides must be allowed to shrink and wrap. */
+.field-label { font-size: 12px; color: #475569; text-transform: uppercase; letter-spacing: 0.05em; min-width: 0; }
+.field-value { font-size: 14px; font-weight: 600; color: #0f172a; text-align: right; min-width: 0; overflow-wrap: anywhere; }
+.field-group-heading { font-size: 10px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: 0.1em; margin: 16px 0 4px; }
+
+/* A credential can carry several records (one order, one licence each). Without
+   these the three classes render.js emits are unstyled, so record 2 packs flush
+   against record 1 and reads as one credential. */
+.field-array-section { display: flex; flex-direction: column; gap: 12px; padding: 12px 0; border-top: 1px solid #e2e8f0; }
+.field-array-divider { font-size: 11px; font-weight: 700; color: #0f766e; text-transform: uppercase; letter-spacing: 0.06em; }
+.field-array-section > .field-array-divider ~ .field-array-divider { padding-top: 12px; border-top: 1px solid #e2e8f0; }
+.field-object-label { font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 8px; }
+
+/* Below this width a label and its value cannot share a line without one of
+   them being crushed, so stack them. */
+@media (max-width: 420px) {
+  .field-row { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .field-value { text-align: left; }
+}
 
 /* ── Notes from the professional ────────────────────────────────────────────
    These were styled inline against the app's dark palette, which put #F1F5F9
@@ -162,7 +181,7 @@ body {
 }
 .note-date {
   display: block;
-  font-size: 11px; color: #94a3b8; font-weight: 500;
+  font-size: 11px; color: #64748b; font-weight: 500;
   margin-bottom: 3px;
 }
 
@@ -182,7 +201,7 @@ body {
 
 .footer-note {
   margin-top: 20px;
-  font-size: 12px; color: #94a3b8;
+  font-size: 12px; color: #64748b;
   text-align: center; line-height: 1.6;
 }
 

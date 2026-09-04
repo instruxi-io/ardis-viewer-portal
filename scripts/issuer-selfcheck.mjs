@@ -9,6 +9,7 @@
 import { readFile } from 'node:fs/promises';
 import { ethers } from 'ethers';
 import assert from 'node:assert';
+import { verifyIssuer } from '../src/issuer.js';
 
 const issuer = new ethers.Wallet(
   '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d');
@@ -20,23 +21,16 @@ function sign(subject, issuedAt, wallet) {
   return new ethers.SigningKey(wallet.privateKey).sign(digest).serialized;
 }
 
-function verdict(doc, keys) {
-  const proof = doc?.proof?.proofValue || '';
-  if (!proof || proof === 'pending-cryptographic-verification') return 'unsigned';
-  if (doc.full_disclosure !== true) return 'partial';
-  const expected = keys[doc.verifier_id];
-  if (!expected) return 'unknown';
-  const subject = doc.credentialSubject ?? doc.data ?? {};
-  const issuedAt = doc.issuanceDate ?? doc.issued_at ?? '';
-  try {
-    const digest = ethers.keccak256(
-      ethers.toUtf8Bytes(JSON.stringify(subject) + issuedAt));
-    const rec = ethers.SigningKey.recoverPublicKey(digest, proof);
-    return rec.toLowerCase() === expected.toLowerCase() ? 'valid' : 'invalid';
-  } catch { return 'error'; }
-}
-
+// The verdict comes from the shipped module, not a re-implementation of it.
+// While this file had its own copy of the recovery it never exercised the
+// portal's signature handling, and a real bug there (a guessed v byte) sat
+// under five passing assertions.
 const keys = { ardis: registeredKey };
+globalThis.fetch = async () => ({ ok: true, json: async () => ({ keys }) });
+
+async function verdict(doc) {
+  return (await verifyIssuer(doc)).status;
+}
 const subject = { records: [{ license_info: { license_number: 'RN-2210084' } }] };
 const issuedAt = '2026-08-06T00:00:00Z';
 const base = {
@@ -44,29 +38,44 @@ const base = {
 };
 
 // 1. Correctly signed, fully disclosed.
-assert.equal(verdict({ ...base, proof: { proofValue: sign(subject, issuedAt, issuer) } }, keys),
+assert.equal(await verdict({ ...base, proof: { proofValue: sign(subject, issuedAt, issuer) } }),
   'valid', 'a correctly signed credential must verify');
 
 // 2. Signed by somebody else.
 const impostor = ethers.Wallet.createRandom();
-assert.equal(verdict({ ...base, proof: { proofValue: sign(subject, issuedAt, impostor) } }, keys),
+assert.equal(await verdict({ ...base, proof: { proofValue: sign(subject, issuedAt, impostor) } }),
   'invalid', 'a signature from another key must be rejected');
 
 // 3. Signed, then a field was altered after signing.
 const tampered = { records: [{ license_info: { license_number: 'RN-9999999' } }] };
-assert.equal(verdict({ ...base, data: tampered,
-  proof: { proofValue: sign(subject, issuedAt, issuer) } }, keys),
+assert.equal(await verdict({ ...base, data: tampered,
+  proof: { proofValue: sign(subject, issuedAt, issuer) } }),
   'invalid', 'altering the payload after signing must be caught');
 
 // 4. Fields withheld: signature covers more than what is shown, so it cannot
 //    be checked. Must not claim valid, and must not cry tampering either.
-assert.equal(verdict({ ...base, full_disclosure: false,
-  proof: { proofValue: sign(subject, issuedAt, issuer) } }, keys),
+assert.equal(await verdict({ ...base, full_disclosure: false,
+  proof: { proofValue: sign(subject, issuedAt, issuer) } }),
   'partial', 'a pruned disclosure must be reported as uncheckable');
 
 // 5. Vendor has not signed at all.
-assert.equal(verdict({ ...base, proof: { proofValue: 'pending-cryptographic-verification' } }, keys),
+assert.equal(await verdict({ ...base, proof: { proofValue: 'pending-cryptographic-verification' } }),
   'unsigned');
+
+// 6. A third-party 64-byte signature, v byte stripped. v is not derivable from
+//    r and s, so a fixed guess called roughly half of these forgeries and
+//    showed the employer the tampering box. Walk issuance dates until both
+//    recovery bytes have actually been exercised.
+const parities = new Set();
+for (let i = 0; i < 40 && parities.size < 2; i += 1) {
+  const at = `2026-08-06T00:00:${String(i).padStart(2, '0')}Z`;
+  const full = sign(subject, at, issuer);
+  parities.add(full.slice(-2));
+  assert.equal(
+    await verdict({ ...base, issued_at: at, proof: { proofValue: full.slice(0, -2) } }),
+    'valid', `a 64-byte signature must verify with v=${full.slice(-2)} stripped`);
+}
+assert.equal(parities.size, 2, 'both recovery bytes must have been exercised');
 
 console.log('issuer selfcheck: all assertions passed');
 

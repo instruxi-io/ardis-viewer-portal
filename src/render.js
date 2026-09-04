@@ -205,6 +205,16 @@ export function renderCredential(vc) {
   statusEl.textContent = statusText;
   statusEl.className   = `meta-value ${statusClass}`;
 
+  // The card is about to become visible with a green status pill on it, and
+  // the issuer check behind it is a network round trip. An empty verdict box
+  // during that round trip reads exactly like a verdict that came back clean,
+  // so say the check is still running. app.js overwrites this with the real
+  // verdict the moment verifyIssuer resolves.
+  renderIssuerVerdict({
+    status: 'pending',
+    detail: 'The result appears here in a moment. Wait for it before relying on this credential.',
+  });
+
   document.getElementById('credential').classList.remove('hidden');
   document.getElementById('loading').classList.add('hidden');
 }
@@ -592,6 +602,7 @@ export function renderIssuerVerdict({ status, detail }) {
   if (!el) return;
 
   const look = {
+    pending: { cls: 'issuer-neutral', icon: '•', title: 'Checking the issuer signature' },
     valid:   { cls: 'issuer-ok',      icon: '✓', title: 'Issuer verified' },
     invalid: { cls: 'issuer-bad',     icon: '✕', title: 'Issuer signature does not match' },
     unsigned:{ cls: 'issuer-neutral', icon: '•', title: 'Not signed by the verifier' },
