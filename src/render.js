@@ -205,6 +205,12 @@ export function renderCredential(vc) {
   statusEl.textContent = statusText;
   statusEl.className   = `meta-value ${statusClass}`;
 
+  // Where the record came from. Read off the document again rather than from
+  // issuerName above, which falls back to "Unknown Issuer" for the header:
+  // that fallback is not a source and must never render on this line.
+  setMetaRow('verifier-row', 'cred-verifier',
+    vc.verifier_name ?? vc.issuer?.name ?? (typeof vc.issuer === 'string' ? vc.issuer : null));
+
   // The card is about to become visible with a green status pill on it, and
   // the issuer check behind it is a network round trip. An empty verdict box
   // during that round trip reads exactly like a verdict that came back clean,
@@ -217,6 +223,33 @@ export function renderCredential(vc) {
 
   document.getElementById('credential').classList.remove('hidden');
   document.getElementById('loading').classList.add('hidden');
+}
+
+/**
+ * The share's own facts, which the credential document does not carry: what
+ * the professional sent it for, and the date the link stops working. The
+ * footer said only that the link "expires automatically", which is not a
+ * date, and the purpose was never shown at all.
+ *
+ * Called with the share response, so it covers a shared personal document as
+ * well as a credential.
+ */
+export function renderShareMeta(share) {
+  setMetaRow('share-purpose-row', 'share-purpose', share?.purpose);
+  setMetaRow('share-expiry-row', 'share-expiry',
+    share?.expires_at ? fmt(share.expires_at) : null);
+}
+
+/**
+ * Fills one meta row and reveals it, leaving it hidden when there is nothing
+ * to put in it. Values here are server-supplied text, so they go in as
+ * textContent. See _fieldRow.
+ */
+function setMetaRow(rowId, valueId, text) {
+  const value = text == null ? '' : String(text).trim();
+  if (value === '') return;
+  document.getElementById(valueId).textContent = value;
+  document.getElementById(rowId).classList.remove('hidden');
 }
 
 function _fieldRow(label, value) {

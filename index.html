@@ -202,6 +202,24 @@
             <span id="cred-status" class="meta-value status-active">Active</span>
           </div>
 
+          <!-- Three things the page already knew and never said: the source
+               the record came from, what the professional sent it for, and
+               the date the link stops working. Each row starts hidden and is
+               revealed only when its field is on the response, because a
+               labelled row with nothing after it reads as an answer. -->
+          <div id="verifier-row" class="meta-row hidden">
+            <span class="meta-label">Verified by</span>
+            <span id="cred-verifier" class="meta-value"></span>
+          </div>
+          <div id="share-purpose-row" class="meta-row hidden">
+            <span class="meta-label">Shared for</span>
+            <span id="share-purpose" class="meta-value"></span>
+          </div>
+          <div id="share-expiry-row" class="meta-row hidden">
+            <span class="meta-label">Link expires</span>
+            <span id="share-expiry" class="meta-value"></span>
+          </div>
+
           <div id="signature-row" class="meta-row hidden">
             <span class="meta-label">Share authorised by</span>
             <span id="signer-address" class="meta-value mono"></span>

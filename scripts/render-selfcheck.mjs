@@ -1,16 +1,17 @@
 /**
- * Render self-check: the two things this page must never get wrong.
+ * Render self-check: the things this page must never get wrong.
  *
  *   1. A calendar date is the same day for every viewer, east or west of UTC.
  *   2. A status word we do not recognise never renders as a green "Active".
  *   3. The issuer verdict is never blank while the finished card is on screen.
+ *   4. Purpose, link expiry and source appear only when the field is there.
  *
  * Run: npm run check (plain Node 18+; the third check drives renderCredential
  * against the small stub document below rather than pulling in a DOM library).
  */
 
 import assert from 'node:assert/strict';
-import { fmt, credentialStatus, renderCredential, renderIssuerVerdict } from '../src/render.js';
+import { fmt, credentialStatus, renderCredential, renderIssuerVerdict, renderShareMeta } from '../src/render.js';
 
 // ── 1. Date-only values are calendar days, not instants ─────────────────────
 // The timezone comes from the environment (see the tz script in package.json).
@@ -159,5 +160,45 @@ renderIssuerVerdict({ status: 'invalid', detail: 'Signature does not match.' });
 assert.ok(verdict.className.includes('issuer-bad'));
 assert.ok(!verdict.text.match(/appears here in a moment/),
   'the pending copy must not survive the real verdict');
+
+// ── 5. What the share is for, when it dies, and where it came from ──────────
+// Each of the three rows is only allowed on screen when its field is actually
+// on the response. A labelled row with nothing after it reads as an answer,
+// and "Link expires: undefined" is worse than no row at all.
+const NEW_ROWS = ['verifier-row', 'share-purpose-row', 'share-expiry-row'];
+for (const id of NEW_ROWS) document.getElementById(id).classList.add('hidden'); // as declared in index.html
+
+renderShareMeta({});
+for (const id of NEW_ROWS) {
+  assert.ok(document.getElementById(id).classList.contains('hidden'),
+    `${id} must stay hidden when the share carries no such field`);
+}
+
+renderShareMeta({ purpose: 'Employment / Hiring', expires_at: '2026-09-12T14:02:11Z' });
+assert.equal(document.getElementById('share-purpose').textContent, 'Employment / Hiring');
+assert.ok(!document.getElementById('share-purpose-row').classList.contains('hidden'));
+// The expiry goes through fmt like every other date on the page, so it is a
+// readable date rather than the raw RFC3339 string the share record carries.
+const linkExpiry = document.getElementById('share-expiry').textContent;
+assert.ok(!linkExpiry.includes('T') && !linkExpiry.includes('Z'),
+  `link expiry must not render raw: ${linkExpiry}`);
+assert.match(linkExpiry, /2026/);
+assert.ok(!document.getElementById('share-expiry-row').classList.contains('hidden'));
+
+// The source line comes from the document, never from the "Unknown Issuer"
+// fallback the header falls back to.
+const licence = {
+  credential_type: 'license',
+  data: { provider_name: 'A. Nurse' },
+  status: 'current',
+  issued_at: '2026-01-01',
+  expires_at: '2030-01-01',
+};
+renderCredential(licence);
+assert.ok(document.getElementById('verifier-row').classList.contains('hidden'),
+  'a document that names no verifier must show no "Verified by" line');
+renderCredential({ ...licence, verifier_name: 'Ardis Data' });
+assert.equal(document.getElementById('cred-verifier').textContent, 'Ardis Data');
+assert.ok(!document.getElementById('verifier-row').classList.contains('hidden'));
 
 console.log(`render selfcheck: all assertions passed (TZ=${process.env.TZ || 'system'})`);

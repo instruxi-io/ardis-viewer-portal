@@ -19,6 +19,7 @@ import {
   normalizeAlerts,
   renderDocuments,
   renderNotes,
+  renderShareMeta,
   showSignerAddress,
   showError,
   showLandingMessage,
@@ -289,6 +290,11 @@ async function main() {
     }
     return;
   }
+
+  // The share's own metadata: purpose and link expiry. Set before either
+  // render path below, because both reveal the same card and both apply to a
+  // shared document as much as to a credential.
+  renderShareMeta(data);
 
   // Encrypted share (blind broker): the server returns only the ciphertext
   // envelope as payload_b64 and never sees the plaintext. Decrypt locally
