@@ -30,6 +30,25 @@ import { ethers } from 'ethers';
 const API_BASE = (import.meta.env?.VITE_ARDIS_API_BASE || 'https://ardis-ms-ix.fly.dev')
   .replace(/\/+$/, '');
 
+/**
+ * The v2 proof payload. Byte-identical to credentialProofV2Payload in ardis-ms
+ * and proofPayloadV2 in the app; the same literal is pinned in a test in all
+ * three. v1 covered the subject and the issue date alone, so the status, the
+ * expiry and the claimed verifier could all be edited between the issuer and
+ * this screen without disturbing the signature.
+ */
+export function proofPayloadV2({ verifierId, credentialType, status, issuedAt, expiresAt, subject }) {
+  return [
+    'ardis-vc2',
+    verifierId,
+    credentialType,
+    status,
+    issuedAt,
+    expiresAt,
+    JSON.stringify(subject),
+  ].join('\n');
+}
+
 export const IssuerStatus = {
   VALID: 'valid',            // signed by the named verifier, checked
   INVALID: 'invalid',        // a signature is present and does not match
@@ -118,11 +137,56 @@ export async function verifyIssuer(doc) {
   const issuedAt = (isW3c ? doc.issuanceDate : doc.issued_at) || '';
 
   try {
-    const payload = JSON.stringify(subject) + issuedAt;
-    const digest = ethers.keccak256(ethers.toUtf8Bytes(payload));
     const want = expected.toLowerCase().replace(/^0x/, '');
-    const ok = candidates(proof).some((sig) => ethers.SigningKey
-      .recoverPublicKey(digest, sig).toLowerCase().replace(/^0x/, '') === want);
+    // A signature that cannot even be parsed is a signature that does not
+    // match. Letting the recovery throw made a malformed proofValue come back
+    // as ERROR, which renders as "could not be checked, reload to try again"
+    // and invites the employer to keep trying a credential that will never
+    // verify. Only a genuine fault outside this loop is an error.
+    const recovers = (payload, sig) => {
+      const digest = ethers.keccak256(ethers.toUtf8Bytes(payload));
+      return candidates(sig).some((s) => {
+        try {
+          return ethers.SigningKey.recoverPublicKey(digest, s)
+            .toLowerCase().replace(/^0x/, '') === want;
+        } catch {
+          return false;
+        }
+      });
+    };
+
+    // Prefer the signature that also covers the status, the expiry and the
+    // verifier. A v2 that is present and fails is a reason to distrust the
+    // document, not a reason to quietly check less of it, so there is no
+    // fallback to v1 in that case.
+    const proofV2 = doc?.proof?.proofValueV2 || '';
+    if (proofV2) {
+      const wideOk = recovers(proofPayloadV2({
+        verifierId,
+        credentialType: doc.credential_type || '',
+        status: doc.status || '',
+        issuedAt,
+        expiresAt: (isW3c ? doc.expirationDate : doc.expires_at) || '',
+        subject,
+      }), proofV2);
+      return wideOk
+        ? {
+            status: IssuerStatus.VALID,
+            verifierId,
+            detail: `Signature verified against the registered key for "${verifierId}". `
+              + 'This signature covers the status, the issue and expiry dates '
+              + 'and the verifier, so those values are the ones the issuer signed.',
+          }
+        : {
+            status: IssuerStatus.INVALID,
+            verifierId,
+            detail: 'The signature does not match the registered key for this verifier. '
+              + 'Treat this credential as unverified.',
+          };
+    }
+
+    const payload = JSON.stringify(subject) + issuedAt;
+    const ok = recovers(payload, proof);
     return ok
       ? {
           status: IssuerStatus.VALID,

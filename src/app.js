@@ -141,61 +141,25 @@ async function main() {
     || 'https://gateway-staging.instruxi.dev/api/v1/enforcer').replace(/\/+$/, '');
   const VIEWER_TENANT = 'CredPass-Viewer-Portal';
 
-  // ── Step 2: OTP gate (layer 1 — dormant until viewer provisioning is built) ─
-  // ardis-ms returns 401 { error: "otp_required" } when the share requires
-  // the viewer to prove email ownership via Enforcer OTP.
-  // Currently RequireOTP is always false server-side, so this branch never fires.
-  // It is scaffolded here so enabling OTP later only flips the server flag.
+  // ── Steps 2 and 3: the gates, answered by the fetch itself ───────────────
+  // There used to be a probe here: a full unauthenticated GET whose only job
+  // was to ask which gate the share was behind, followed by the real request
+  // below. But that GET is not a question, it is the resolve. For a share with
+  // no PIN it passed the gate, downloaded the credential, counted a view and
+  // set Used on a one-time link, and then the real request ran into the link
+  // it had just burned. Every employer's first look at a burn-after-read share
+  // was spent before the page had rendered anything, and ordinary shares were
+  // counted as opened twice.
+  //
+  // The loop below already knew how to be told what it was missing and try
+  // again. It just had to be told about OTP as well, and then the first
+  // attempt is the probe.
+  //
+  // OTP is scaffolding: RequireOTP is always false server-side today, so that
+  // branch never fires. Enabling it later is a server flag, not a change here.
   let viewerToken = null;
-  let pinRequired = false;
-  let rawProbe;
-  try {
-    rawProbe = await fetch(shareUrl, {
-      headers: { Accept: 'application/json, */*' },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-  } catch (e) {
-    showError('Unable to load', netErrorBody(e, 'credential service'));
-    return;
-  }
-  if (rawProbe.status === 401) {
-    let errBody = null;
-    try { errBody = await rawProbe.json(); } catch (_) {}
-    if (errBody && errBody.error === 'otp_required') {
-      const emailHint = errBody.email_hint || '';
-      viewerToken = await runOTPFlow(ENFORCER_BASE, VIEWER_TENANT, emailHint);
-      if (!viewerToken) return;
-    } else if (errBody?.error === 'pin_required') {
-      pinRequired = true;
-    } else {
-      // Unexpected 401 that is neither OTP nor PIN — surface it.
-      showError('Unable to load', errBody?.message || 'Authentication required.');
-      return;
-    }
-  }
-
-  // ── Step 3: PIN gate (layer 2 — second factor for encrypted shares) ──────
-  // The link carries the decryption key K in its #k= fragment.
-  // The PIN gates the server releasing the ciphertext.
-  // Neither the link nor the PIN alone is sufficient to open the share.
-  // If the viewer came via code-entry, enteredPin is already known.
-  // If they came via a full link, we prompt only when the probe above says the
-  // server actually wants a PIN. Prompting unconditionally parked the viewer of
-  // a plaintext share in front of a gate for a code that was never issued, with
-  // nothing on screen to get them past it. An OTP-gated share answers
-  // otp_required first and pin_required only on the next request, so that case
-  // is picked up by the loop below instead.
   let sharePin = enteredPin;
-  if (!sharePin && pinRequired) {
-    sharePin = await runPinEntryFlow();
-    if (!sharePin) return; // user closed the PIN prompt
-  }
 
-  // ── Step 4: fetch the share (with OTP token + PIN) ───────────────────────
-  // Looped, because the likeliest reason to be here with a rejected PIN is one
-  // mistyped digit. Ending the session on the error screen is unrecoverable:
-  // showError hides the gate for good and the link is often single-use, so the
-  // employer's only route back is asking the professional to re-share.
   let rawResp;
   for (;;) {
     const fetchHeaders = { Accept: 'application/json, */*' };
@@ -215,6 +179,11 @@ async function main() {
     if (rawResp.status === 401 || rawResp.status === 403) {
       let errBody = null;
       try { errBody = await rawResp.json(); } catch (_) {}
+      if (errBody?.error === 'otp_required' && !viewerToken) {
+        viewerToken = await runOTPFlow(ENFORCER_BASE, VIEWER_TENANT, errBody.email_hint || '');
+        if (!viewerToken) return;
+        continue;
+      }
       if (errBody?.error === 'pin_required' || errBody?.error === 'wrong_pin') {
         sharePin = await runPinEntryFlow(errBody.error === 'wrong_pin'
           ? 'Incorrect PIN. Check the code sent with the link and try again.'

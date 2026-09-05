@@ -97,3 +97,69 @@ console.log('issuer selfcheck: all assertions passed');
   void renderIssuerVerdict;
   console.log('issuer scope   ok (the verdict does not vouch for unsigned fields)');
 }
+
+// ── v2: the signature that also covers status, expiry and verifier ──────────
+//
+// v1 signed the subject and the issue date alone, so an employer read a status
+// and an expiry the signature had never seen. These assertions are the reason
+// the wider payload exists, and the pinned literal is the cross-language
+// contract: the same string is asserted in Go's
+// TestCredentialProofV2PayloadIsTheAgreedBytes and Dart's vc_proof_v2_test.
+{
+  const { proofPayloadV2 } = await import('../src/issuer.js');
+
+  assert.strictEqual(
+    proofPayloadV2({
+      verifierId: 'ix',
+      credentialType: 'identity-verification',
+      status: 'current',
+      issuedAt: '2026-09-05T12:00:00Z',
+      expiresAt: '2027-09-05T12:00:00Z',
+      subject: { full_name: 'A B' },
+    }),
+    'ardis-vc2\nix\nidentity-verification\ncurrent\n'
+      + '2026-09-05T12:00:00Z\n2027-09-05T12:00:00Z\n{"full_name":"A B"}',
+    'the v2 payload drifted from the one Go and Dart sign');
+
+  const subject = { licence: 'SIM-XX-1000' };
+  const base = {
+    verifier_id: 'ardis',
+    credential_type: 'license',
+    status: 'current',
+    data: subject,
+    issued_at: '2026-09-05T12:00:00Z',
+    expires_at: '2027-09-05T12:00:00Z',
+    full_disclosure: true,
+  };
+  const signV2 = (d) => new ethers.SigningKey(issuer.privateKey).sign(
+    ethers.keccak256(ethers.toUtf8Bytes(proofPayloadV2({
+      verifierId: d.verifier_id,
+      credentialType: d.credential_type,
+      status: d.status,
+      issuedAt: d.issued_at,
+      expiresAt: d.expires_at,
+      subject: d.data,
+    })))).serialized;
+
+  const signed = { ...base, proof: { proofValue: 'x', proofValueV2: signV2(base) } };
+  const good = await verifyIssuer(signed);
+  assert.strictEqual(good.status, 'valid', 'a correctly signed v2 credential must verify');
+  assert.ok(/covers the status/.test(good.detail),
+    'a v2 verdict must tell the employer the status is covered');
+
+  // The whole point: editing a field v1 left outside the signature must now
+  // break it, rather than being reported as verified.
+  for (const [field, value] of [['status', 'suspended'], ['expires_at', '2099-01-01T00:00:00Z'], ['credential_type', 'other']]) {
+    const tampered = { ...signed, [field]: value };
+    const verdict = await verifyIssuer(tampered);
+    assert.strictEqual(verdict.status, 'invalid',
+      `editing ${field} must invalidate the v2 signature, got ${verdict.status}`);
+  }
+
+  // A present-but-broken v2 must not quietly fall back to checking less.
+  const brokenV2 = { ...signed, proof: { proofValue: sign(subject, base.issued_at, issuer), proofValueV2: '0x' + '11'.repeat(65) } };
+  assert.strictEqual((await verifyIssuer(brokenV2)).status, 'invalid',
+    'a failed v2 must not fall back to v1');
+
+  console.log('issuer v2 selfcheck: ok');
+}

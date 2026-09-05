@@ -56,23 +56,38 @@ export async function fetchSharedCredential(guid) {
 /**
  * Fetch a credential display schema from ardis-ms.
  * schemaVersion format: "{verifierId}/{credentialType}/{version}" e.g. "ardis/license/v1"
- * Fetches /latest so the most recent schema always applies.
  * Returns { data_schema, ui_schema } or null if not found.
- * Public endpoint — no auth required.
+ * Public endpoint, no auth required.
+ *
+ * This asked for /latest and threw the version away, while the app renders the
+ * version the credential names. So the two sides of one credential could be
+ * laid out by different schemas: a field the vendor renamed, reordered or
+ * stopped publishing showed one way to the professional and another way to the
+ * employer, from the same signed document. Whichever is right, they cannot
+ * both be, and the employer is the one making a decision on it.
+ *
+ * The version the credential declares wins. /latest is the fallback for a
+ * credential that names no version, and for one whose version has since been
+ * unpublished, where a current layout beats no layout at all.
  */
 export async function fetchSchema(schemaVersion) {
   const parts = schemaVersion.split('/');
   if (parts.length < 2) return null;
-  const [verifierId, credentialType] = parts;
-  const url = `${API_BASE}/api/v1/ardis/public/credential-schemas/${encodeURIComponent(verifierId)}/${encodeURIComponent(credentialType)}/latest`;
-  try {
-    const res = await fetch(url, { headers: { Accept: 'application/json' } });
-    if (!res.ok) return null;
-    const body = await res.json();
-    return body?.data ?? null;
-  } catch {
-    return null;
+  const [verifierId, credentialType, version] = parts;
+  const base = `${API_BASE}/api/v1/ardis/public/credential-schemas/${encodeURIComponent(verifierId)}/${encodeURIComponent(credentialType)}`;
+  const wanted = version ? [`${base}/${encodeURIComponent(version)}`, `${base}/latest`] : [`${base}/latest`];
+  for (const url of wanted) {
+    try {
+      const res = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!res.ok) continue;
+      const body = await res.json();
+      if (body?.data) return body.data;
+    } catch {
+      // Try the fallback; a network blip on the pinned version should not
+      // leave the employer with an unrendered credential.
+    }
   }
+  return null;
 }
 
 /**
