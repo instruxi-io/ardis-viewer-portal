@@ -53,9 +53,11 @@ assert.ok(!fmt('2026-07-14T18:30:00Z', 'date').includes(':'));
 // ── 2. Zero and false are answers, not missing data ─────────────────────────
 assert.equal(fmt(0), '0', 'zero is a value, not "no data"');
 assert.equal(fmt(false), 'No', 'false is a value, not "no data"');
-assert.equal(fmt(''), '—');
-assert.equal(fmt(null), '—');
-assert.equal(fmt(undefined), '—');
+// An absent value says so in words. A bare dash reads as a rendering fault to
+// an employer who is trying to decide whether a licence is real.
+assert.equal(fmt(''), 'Not provided');
+assert.equal(fmt(null), 'Not provided');
+assert.equal(fmt(undefined), 'Not provided');
 
 // A field that merely looks like a date must not print "Invalid Date".
 assert.equal(fmt('2026-13-45'), '2026-13-45');

@@ -60,7 +60,7 @@ const TIMESTAMP = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/;
 
 export function fmt(val, format) {
   // Not `!val`: 0 and false are answers, and both used to print as "no data".
-  if (val === null || val === undefined || val === '') return '—';
+  if (val === null || val === undefined || val === '') return 'Not provided';
   if (typeof val === 'boolean') return val ? 'Yes' : 'No';
   const str = String(val);
   const dateOnly = DATE_ONLY.test(str);
@@ -350,9 +350,15 @@ export function renderDocuments(pdfObjects, fetchUrl) {
     const btn  = document.createElement('button');
     btn.className   = 'doc-btn';
     btn.textContent = `⬇ ${name}`;
+    // A failed download used to come back as a browser alert() carrying the
+    // raw HTTP status. It now reads inline, in the same error style as the
+    // rest of the page.
+    const errEl = document.createElement('p');
+    errEl.className = 'otp-error hidden';
     btn.addEventListener('click', async () => {
       btn.textContent = '…';
       btn.disabled    = true;
+      errEl.classList.add('hidden');
       try {
         const url = await fetchUrl(obj.key);
         const a   = document.createElement('a');
@@ -361,13 +367,19 @@ export function renderDocuments(pdfObjects, fetchUrl) {
         a.click();
         setTimeout(() => URL.revokeObjectURL(url), 60_000);
       } catch (e) {
-        alert(`Download failed: ${e.message}`);
+        // api.js already writes plain-English copy for the network, missing-key
+        // and decrypt failures; only the HTTP fallback leaks a status code.
+        errEl.textContent = String(e.code ?? '').startsWith('http_')
+          ? 'That file could not be downloaded. Try again, or ask the sender to re-share it.'
+          : e.message;
+        errEl.classList.remove('hidden');
       } finally {
         btn.textContent = `⬇ ${name}`;
         btn.disabled    = false;
       }
     });
     section.appendChild(btn);
+    section.appendChild(errEl);
   }
 
   section.classList.remove('hidden');
@@ -412,7 +424,10 @@ export function normalizeAlerts(vcAlerts, platformAlerts) {
 }
 
 export function renderAlerts(alerts) {
-  const container = document.getElementById('credential');
+  // The 560px column and its side padding live on .main, not on #credential,
+  // whose first child is the header bar. Inserting into #credential put the
+  // alerts above the branding, full-bleed and flush to both edges.
+  const container = document.querySelector('.main');
   if (!container) return;
 
   const sorted = [...alerts].sort((a, b) => {
@@ -441,7 +456,7 @@ export function renderAlerts(alerts) {
       margin-bottom:8px;
     `;
     const date = alert.created_at
-      ? new Date(alert.created_at).toLocaleDateString(undefined, { year:'numeric', month:'short', day:'numeric' })
+      ? new Date(alert.created_at).toLocaleDateString('en-US', { year:'numeric', month:'short', day:'numeric' })
       : '';
     // Nodes, not markup: alert.title/message are vendor-authored. See _fieldRow.
     const head = document.createElement('div');
@@ -512,7 +527,7 @@ export function renderNotes(notes) {
     if (when && !Number.isNaN(when.getTime())) {
       const stamp = document.createElement('span');
       stamp.className = 'note-date';
-      stamp.textContent = when.toLocaleDateString(undefined, {
+      stamp.textContent = when.toLocaleDateString('en-US', {
         year: 'numeric', month: 'short', day: 'numeric',
       });
       item.appendChild(stamp);

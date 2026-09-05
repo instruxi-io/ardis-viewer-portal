@@ -65,12 +65,21 @@ let keyCache = null;
  * Returns null when the directory could not be reached — an empty object would
  * be indistinguishable from "this issuer has no key", which downgraded a
  * perfectly good credential to "unknown issuer" on a dropped request.
+ *
+ * The request is bounded for the same reason every fetch in app.js is: a
+ * directory that accepts the connection and then goes quiet never rejects on
+ * its own. app.js awaits this verdict before it renders the documents and the
+ * signer row, so a hung key fetch left the employer on "Checking the issuer
+ * signature" with the rest of the share never appearing at all. A timeout
+ * lands in the catch below and comes back as null, which is the honest answer:
+ * the signature has not been checked, and the page carries on.
  */
 export async function fetchVerifierKeys() {
   if (keyCache) return keyCache;
   try {
     const res = await fetch(`${API_BASE}/api/v1/ardis/public/verifier-keys`, {
       headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) return null;
     const body = await res.json();

@@ -13,6 +13,14 @@ import { isEnvelope, decryptEnvelope } from './envelope.js';
 // is an /api/v1/ardis route, which the gateway does not serve.
 const API_BASE = (import.meta.env.VITE_ARDIS_API_BASE || 'https://ardis-ms-ix.fly.dev').replace(/\/+$/, '');
 
+// Documents stream bytes from Storj, so they get a longer budget than the JSON
+// calls in app.js. The same signal also governs the arrayBuffer() read, and a
+// large PDF still arriving at 20s would be aborted mid-download.
+// ponytail: one flat ceiling, not a stall detector. A download still making
+// progress at 60s is killed with the rest. Upgrade path is a streaming read
+// that resets the budget on each chunk.
+const DOC_TIMEOUT_MS = 60000;
+
 /**
  * Fetch a shared credential by its opaque GUID.
  * Resolves to { credential_id, purpose, expires_at, credential, signature? }.
@@ -117,10 +125,16 @@ export async function fetchShareDocument(guid, storageKey, keyBytes = null, cont
 
   let res;
   try {
-    res = await fetch(url, { headers });
+    res = await fetch(url, { headers, signal: AbortSignal.timeout(DOC_TIMEOUT_MS) });
   } catch (e) {
-    const err = new Error('Could not reach the document service. Check your connection and try again.');
-    err.code = 'network_error';
+    // A timeout and a dead connection both land here, and telling someone with
+    // working wifi to check their connection sends them off to fix the wrong
+    // thing.
+    const timedOut = e?.name === 'TimeoutError';
+    const err = new Error(timedOut
+      ? 'The document took too long to download. Try again.'
+      : 'Could not reach the document service. Check your connection and try again.');
+    err.code = timedOut ? 'timeout' : 'network_error';
     throw err;
   }
 

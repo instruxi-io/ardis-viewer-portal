@@ -19,9 +19,16 @@
     // check is two property reads and it stops itself on the first painted
     // screen. Upgrade path if this ever needs to react faster than a second is
     // an observer on the class attribute.
+    //
+    // The count has to outlast the request path it is watching. app.js bounds
+    // every fetch at REQUEST_TIMEOUT_MS (20s) and main() gives the schema
+    // fetch a further 4s race, so at 15 ticks a response that arrived at 18s
+    // painted the credential card below a full-screen "This credential did
+    // not load". At 30 the only thing left that can trip this is a module
+    // that never started, which is what the copy below actually says.
     addEventListener('DOMContentLoaded', function () {
       var loading = document.getElementById('loading');
-      var ticksLeft = 15;
+      var ticksLeft = 30;
       var poll = setInterval(function () {
         if (loading.classList.contains('hidden')) return clearInterval(poll);
         if (--ticksLeft > 0) return;
@@ -32,6 +39,7 @@
           'The viewer did not finish starting up. Reload the page to try ' +
           'again, and ask for a new link if it keeps happening.';
         loading.classList.add('hidden');
+        document.getElementById('error-retry').classList.remove('hidden');
         document.getElementById('error').classList.remove('hidden');
       }, 1000);
     });
@@ -54,6 +62,15 @@
       <div class="error-icon">✕</div>
       <h2 id="error-title">Unable to load credential</h2>
       <p id="error-body">The link may be expired or invalid.</p>
+      <!-- Starts hidden so the terminal states (expired, withdrawn, already
+           used) stay text-only, and is authored here rather than built in
+           render.js because the watchdog above runs before the module and has
+           to reveal the same control its copy points at. Width is pinned
+           inline because .otp-btn is 100% wide, which stretches right across
+           the centred error screen. -->
+      <button id="error-retry" class="otp-btn hidden"
+              style="width: auto; min-width: 180px; margin-top: 8px"
+              onclick="location.reload()">Try again</button>
     </div>
 
     <!-- Landing state — Stripe Checkout / Identity return. Styled to match
@@ -191,11 +208,11 @@
 
           <div class="meta-row">
             <span class="meta-label">Issued</span>
-            <span id="cred-issued" class="meta-value">—</span>
+            <span id="cred-issued" class="meta-value">Not provided</span>
           </div>
           <div class="meta-row">
             <span class="meta-label">Expires</span>
-            <span id="cred-expires" class="meta-value">—</span>
+            <span id="cred-expires" class="meta-value">Not provided</span>
           </div>
           <div class="meta-row">
             <span class="meta-label">Status</span>

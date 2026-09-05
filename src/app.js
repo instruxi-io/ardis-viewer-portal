@@ -249,7 +249,7 @@ async function main() {
       showError('This link no longer works',
         'It may have been withdrawn by the person who sent it, or it may have expired. Ask them to send a new one.');
     } else if (err.code === 'already_viewed') {
-      showError('Link already used', 'This is a single-use link and it has already been opened.');
+      showError('Link already used', 'This is a single-use link and it has already been opened. Ask the holder to send a new one.');
     } else if (err.status === 410 || err.code === 'expired') {
       showError('Link expired', 'This credential link has expired. Ask the holder to send a new one.');
     } else if (err.status === 403 || err.code === 'wrong_recipient') {
@@ -528,6 +528,11 @@ async function runCodeEntryFlow(apiBase) {
         return;
       }
       btn.disabled = true;
+      // The field is disabled alongside the button because Enter goes straight
+      // to submit() and does not care that the button is disabled: a second
+      // press started a second lookup, and whichever response landed first
+      // reset the button to idle while the others were still in flight.
+      input.disabled = true;
       btn.textContent = 'Looking up…';
       try {
         const resp = await fetch(`${apiBase}/api/v1/ardis/public/share/code/${digits}`,
@@ -555,6 +560,7 @@ async function runCodeEntryFlow(apiBase) {
         showErr(netErrorBody(e, 'service'));
       } finally {
         btn.disabled = false;
+        input.disabled = false;
         btn.textContent = 'Continue';
       }
     }
