@@ -174,12 +174,28 @@ export async function fetchVerifierKeys() {
       return null;
     }
 
+    // A registry dated far in the future must not be stored, or one bad clock
+    // on the server pins this browser above every legitimate registry that
+    // follows and the employer can never verify anything again. The mark only
+    // ever moves up, so a poisoned value is permanent.
+    const issued = Date.parse(issuedAt);
+    const DAY = 86400000;
+    if (!Number.isFinite(issued) || issued > Date.now() + DAY) {
+      lastKeyFetchFailure = 'untrusted';
+      return null;
+    }
+
     // Never move backwards. An older registry is a rollback whatever this
     // machine thinks the time is, which is why the comparison is against what
-    // we have already accepted rather than against the clock.
-    const seen = highWaterMark();
-    if (seen && issuedAt < seen) {
-      lastKeyFetchFailure = 'untrusted';
+    // we have already accepted rather than against the clock. Compared as
+    // instants, not as strings: the server could legitimately change precision
+    // or offset format and a lexical compare would read that as a rollback.
+    const seen = Date.parse(highWaterMark() ?? '');
+    if (Number.isFinite(seen) && issued < seen) {
+      // This one IS signed by us, it is just old, so calling it unsigned
+      // would be a lie in the one place an employer is deciding whether to
+      // trust a person's licence.
+      lastKeyFetchFailure = 'stale';
       return null;
     }
     setHighWaterMark(issuedAt);
@@ -226,16 +242,23 @@ export async function verifyIssuer(doc) {
 
   const keys = await fetchVerifierKeys();
   if (keys === null) {
-    const untrusted = keyFetchFailure() === 'untrusted';
+    const why = keyFetchFailure();
+    const detail = {
+      untrusted:
+        'The issuer key directory did not carry a valid signature from '
+        + 'Instruxi, so no issuer on it can be trusted. Do not rely on this '
+        + 'credential.',
+      stale:
+        'The issuer key directory came back older than one this browser has '
+        + 'already seen, so it was refused. Reload to try again.',
+    }[why] ?? 'The issuer key directory could not be reached, so the signature '
+      + 'has not been checked yet. Reload to try again.';
     return {
-      status: untrusted ? IssuerStatus.INVALID : IssuerStatus.ERROR,
+      // Only a bad signature is a reason to distrust the credential. Stale or
+      // unreachable both mean "not checked yet", which is an error state.
+      status: why === 'untrusted' ? IssuerStatus.INVALID : IssuerStatus.ERROR,
       verifierId,
-      detail: untrusted
-        ? 'The issuer key directory did not carry a valid signature from '
-          + 'Instruxi, so no issuer on it can be trusted. Do not rely on this '
-          + 'credential.'
-        : 'The issuer key directory could not be reached, so the signature '
-          + 'has not been checked yet. Reload to try again.',
+      detail,
     };
   }
   const expected = keys[verifierId];

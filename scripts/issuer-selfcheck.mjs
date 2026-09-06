@@ -38,7 +38,10 @@ setIxTrustRootForTesting(
   ethers.SigningKey.computePublicKey(ix.privateKey, false));
 
 const canonical = (issuedAt, k) => canonicalKeyMapAt(issuedAt, k);
-function signedRegistry(k = keys, issuedAt = '2026-09-06T12:00:00Z') {
+// Relative to now, never hardcoded: a fixed date drifts past the future-skew
+// guard or the staleness rules and the file rots into a false failure.
+const at = (msFromNow) => new Date(Date.now() + msFromNow).toISOString();
+function signedRegistry(k = keys, issuedAt = at(-60_000)) {
   const sig = new ethers.SigningKey(ix.privateKey)
     .sign(ethers.keccak256(ethers.toUtf8Bytes(canonical(issuedAt, k)))).serialized;
   return { keys: k, issued_at: issuedAt, sig_v2: sig };
@@ -231,10 +234,11 @@ console.log('issuer selfcheck: all assertions passed');
     proof: { proofValue: sign(forgedSubject, '2026-09-05T12:00:00Z', attacker) },
   };
   setIxTrustRootForTesting(ethers.SigningKey.computePublicKey(ix.privateKey, false));
-  registryBody = { keys: forgedKeys, issued_at: '2026-09-06T12:00:00Z',
+  const forgedAt = at(-60_000);
+  registryBody = { keys: forgedKeys, issued_at: forgedAt,
     sig_v2: new ethers.SigningKey(attacker.privateKey).sign(
       ethers.keccak256(ethers.toUtf8Bytes(
-        canonicalKeyMapAt('2026-09-06T12:00:00Z', forgedKeys)))).serialized };
+        canonicalKeyMapAt(forgedAt, forgedKeys)))).serialized };
   const verdict = await verifyIssuer(forgedDoc);
   assert.notStrictEqual(verdict.status, 'valid',
     'a registry signed by anyone but IX must never produce a valid verdict');
@@ -243,13 +247,36 @@ console.log('issuer selfcheck: all assertions passed');
 
   // A captured older registry must not roll a revoked key back in.
   setIxTrustRootForTesting(ethers.SigningKey.computePublicKey(ix.privateKey, false));
-  registryBody = signedRegistry(keys, '2026-09-06T12:00:00Z');
+  registryBody = signedRegistry(keys, at(-60_000));
   assert.ok(await fetchVerifierKeys(), 'precondition: the current one is accepted');
   const { fetchVerifierKeys: refetch } = await import('../src/issuer.js');
   setIxTrustRootForTesting(ethers.SigningKey.computePublicKey(ix.privateKey, false));
-  registryBody = signedRegistry(keys, '2026-01-01T00:00:00Z');
+  registryBody = signedRegistry(keys, at(-400 * 86400_000));
   assert.strictEqual(await refetch(), null,
     'a registry older than one already accepted is a rollback and must be refused');
+
+  // A registry dated far in the future must not be stored, or one bad server
+  // clock pins this browser above every legitimate registry that follows.
+  setIxTrustRootForTesting(ethers.SigningKey.computePublicKey(ix.privateKey, false));
+  _store.clear();
+  registryBody = signedRegistry(keys, at(3 * 86400_000));
+  assert.strictEqual(await (await import('../src/issuer.js')).fetchVerifierKeys(), null,
+    'a registry dated days in the future must be refused');
+  assert.strictEqual(_store.size, 0,
+    'and it must not leave a high-water mark behind, or nothing verifies again');
+
+  // Stale is not the same as forged, and must not be reported as tampering.
+  setIxTrustRootForTesting(ethers.SigningKey.computePublicKey(ix.privateKey, false));
+  _store.clear();
+  registryBody = signedRegistry(keys, at(-60_000));
+  assert.ok(await (await import('../src/issuer.js')).fetchVerifierKeys());
+  setIxTrustRootForTesting(ethers.SigningKey.computePublicKey(ix.privateKey, false));
+  registryBody = signedRegistry(keys, at(-400 * 86400_000));
+  const staleVerdict = await verifyIssuer(goodDoc);
+  assert.strictEqual(staleVerdict.status, 'error',
+    'an old but genuinely IX-signed registry is not tampering');
+  assert.ok(/older than one this browser/.test(staleVerdict.detail),
+    'and it must say so rather than claim the signature was invalid');
 
   // Leave the trust root where the rest of the file expects it.
   setIxTrustRootForTesting(ethers.SigningKey.computePublicKey(ix.privateKey, false));
