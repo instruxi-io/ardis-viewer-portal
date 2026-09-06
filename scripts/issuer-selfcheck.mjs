@@ -9,7 +9,7 @@
 import { readFile } from 'node:fs/promises';
 import { ethers } from 'ethers';
 import assert from 'node:assert';
-import { verifyIssuer } from '../src/issuer.js';
+import { verifyIssuer, setIxTrustRootForTesting, canonicalKeyMapAt } from '../src/issuer.js';
 
 const issuer = new ethers.Wallet(
   '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d');
@@ -26,7 +26,32 @@ function sign(subject, issuedAt, wallet) {
 // portal's signature handling, and a real bug there (a guessed v byte) sat
 // under five passing assertions.
 const keys = { ardis: registeredKey };
-globalThis.fetch = async () => ({ ok: true, json: async () => ({ keys }) });
+
+// The registry is only trusted if it is signed by the pinned IX key. The real
+// private half is a deployment secret, so the trust root is pointed at a
+// throwaway keypair here and the mocked server signs with it. Serving an
+// unsigned registry, which is what this file used to do, is now correctly
+// refused, so every assertion below depends on this being right.
+const ix = new ethers.Wallet(
+  '0x4c0883a69102937d6231471b5dbb6204fe512961708279e1c4d19bcfd8c8b9a1');
+setIxTrustRootForTesting(
+  ethers.SigningKey.computePublicKey(ix.privateKey, false));
+
+const canonical = (issuedAt, k) => canonicalKeyMapAt(issuedAt, k);
+function signedRegistry(k = keys, issuedAt = '2026-09-06T12:00:00Z') {
+  const sig = new ethers.SigningKey(ix.privateKey)
+    .sign(ethers.keccak256(ethers.toUtf8Bytes(canonical(issuedAt, k)))).serialized;
+  return { keys: k, issued_at: issuedAt, sig_v2: sig };
+}
+let registryBody = signedRegistry();
+globalThis.fetch = async () => ({ ok: true, json: async () => registryBody });
+// localStorage does not exist under node; the high-water mark is guarded for
+// exactly this, but give it a real one so the rollback assertion can run.
+const _store = new Map();
+globalThis.localStorage = {
+  getItem: (key) => (_store.has(key) ? _store.get(key) : null),
+  setItem: (key, v) => _store.set(key, String(v)),
+};
 
 async function verdict(doc) {
   return (await verifyIssuer(doc)).status;
@@ -162,4 +187,72 @@ console.log('issuer selfcheck: all assertions passed');
     'a failed v2 must not fall back to v1');
 
   console.log('issuer v2 selfcheck: ok');
+}
+
+// ── The registry itself has to be trusted before any issuer on it is ────────
+//
+// This is the control that was missing entirely: the viewer read body.keys and
+// used it, so anyone who could answer that fetch served their own key for
+// "ardis" and this page printed "signature verified against the registered
+// key" over a document they had forged.
+{
+  const { fetchVerifierKeys, keyFetchFailure } = await import('../src/issuer.js');
+  const subject = { licence: 'SIM-XX-1000' };
+  const goodDoc = {
+    verifier_id: 'ardis', credential_type: 'license', status: 'current',
+    data: subject, issued_at: '2026-09-05T12:00:00Z', full_disclosure: true,
+    proof: { proofValue: sign(subject, '2026-09-05T12:00:00Z', issuer) },
+  };
+
+  // Baseline: a properly signed registry still verifies the issuer.
+  setIxTrustRootForTesting(ethers.SigningKey.computePublicKey(ix.privateKey, false));
+  registryBody = signedRegistry();
+  assert.strictEqual((await verifyIssuer(goodDoc)).status, 'valid',
+    'a signed registry must still let a genuine credential verify');
+
+  // An unsigned registry is refused, not silently trusted.
+  setIxTrustRootForTesting(ethers.SigningKey.computePublicKey(ix.privateKey, false));
+  registryBody = { keys };
+  assert.strictEqual(await fetchVerifierKeys(), null,
+    'a registry with no signature must be refused');
+  assert.strictEqual(keyFetchFailure(), 'untrusted');
+
+  // The attack: someone answers the fetch with their own key for "ardis".
+  // Before this control, the forged credential below verified.
+  const attacker = new ethers.Wallet(
+    '0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba');
+  const forgedKeys = {
+    ardis: ethers.SigningKey.computePublicKey(attacker.privateKey, false),
+  };
+  const forgedSubject = { licence: 'TOTALLY-MADE-UP' };
+  const forgedDoc = {
+    verifier_id: 'ardis', credential_type: 'license', status: 'current',
+    data: forgedSubject, issued_at: '2026-09-05T12:00:00Z', full_disclosure: true,
+    proof: { proofValue: sign(forgedSubject, '2026-09-05T12:00:00Z', attacker) },
+  };
+  setIxTrustRootForTesting(ethers.SigningKey.computePublicKey(ix.privateKey, false));
+  registryBody = { keys: forgedKeys, issued_at: '2026-09-06T12:00:00Z',
+    sig_v2: new ethers.SigningKey(attacker.privateKey).sign(
+      ethers.keccak256(ethers.toUtf8Bytes(
+        canonicalKeyMapAt('2026-09-06T12:00:00Z', forgedKeys)))).serialized };
+  const verdict = await verifyIssuer(forgedDoc);
+  assert.notStrictEqual(verdict.status, 'valid',
+    'a registry signed by anyone but IX must never produce a valid verdict');
+  assert.strictEqual(verdict.status, 'invalid',
+    'and it must read as untrustworthy, not as a network problem');
+
+  // A captured older registry must not roll a revoked key back in.
+  setIxTrustRootForTesting(ethers.SigningKey.computePublicKey(ix.privateKey, false));
+  registryBody = signedRegistry(keys, '2026-09-06T12:00:00Z');
+  assert.ok(await fetchVerifierKeys(), 'precondition: the current one is accepted');
+  const { fetchVerifierKeys: refetch } = await import('../src/issuer.js');
+  setIxTrustRootForTesting(ethers.SigningKey.computePublicKey(ix.privateKey, false));
+  registryBody = signedRegistry(keys, '2026-01-01T00:00:00Z');
+  assert.strictEqual(await refetch(), null,
+    'a registry older than one already accepted is a rollback and must be refused');
+
+  // Leave the trust root where the rest of the file expects it.
+  setIxTrustRootForTesting(ethers.SigningKey.computePublicKey(ix.privateKey, false));
+  registryBody = signedRegistry();
+  console.log('registry trust selfcheck: ok');
 }

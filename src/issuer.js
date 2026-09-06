@@ -74,6 +74,66 @@ let keyCache = null;
  * lands in the catch below and comes back as null, which is the honest answer:
  * the signature has not been checked, and the page carries on.
  */
+/**
+ * The IX platform signing key, pinned here the same way the app pins it.
+ *
+ * This is the trust root for the whole issuer verdict. Without it the registry
+ * was taken on faith from whatever answered the fetch, so anyone able to answer
+ * it (a hostile network, a compromised host or DNS) could serve their own key
+ * for a verifier id and have this page print "signature verified against the
+ * registered key" over a document they forged. The app has always checked this.
+ * The employer's page, which is the surface a buyer actually looks at, did not.
+ */
+let IX_SIGNING_PUBKEY =
+  '04938d191544007d075299483456b31404842b657660c04e3a072ca4daa88b3010847fea8a61c449bcd68dd999ea928cabed9a219549d8adda2cde125a99c4741c';
+
+/**
+ * Point the trust root at a throwaway key so the selfcheck can prove this
+ * verification actually rejects a forged registry. The real IX private key is
+ * a deployment secret and is not available to a test, so there is no way to
+ * mint a valid registry signature without this seam. Nothing in the app calls
+ * it, and the name is meant to make any other use obviously wrong.
+ */
+export function setIxTrustRootForTesting(pubKeyHex) {
+  IX_SIGNING_PUBKEY = pubKeyHex;
+  keyCache = null;
+  lastKeyFetchFailure = null;
+}
+
+/** Why the last key fetch produced nothing: 'unreachable' or 'untrusted'.
+ *  These are very different things to tell an employer, and collapsing both
+ *  into "could not be reached" would describe a forged registry as a network
+ *  blip. */
+let lastKeyFetchFailure = null;
+export const keyFetchFailure = () => lastKeyFetchFailure;
+
+/** Byte for byte what ardis-ms signs. Must match canonicalVerifierKeysAt in Go
+ *  and VerifierKeysService.canonicalKeyMapAt in Dart. */
+export function canonicalKeyMapAt(issuedAt, keys) {
+  const ids = Object.keys(keys).sort();
+  return `${issuedAt}\n${ids.map((id) => `${id}:${keys[id]}`).join('\n')}`;
+}
+
+/** Highest issue time this browser has already trusted, so a captured older
+ *  registry cannot be replayed to put a revoked key back. Mirrors the app's
+ *  high-water mark. Storage being unavailable must not break verification, so
+ *  every access is guarded. */
+const HWM_KEY = 'ardis:verifier-keys:issued-at';
+function highWaterMark() {
+  try {
+    return localStorage.getItem(HWM_KEY);
+  } catch {
+    return null;
+  }
+}
+function setHighWaterMark(issuedAt) {
+  try {
+    localStorage.setItem(HWM_KEY, issuedAt);
+  } catch {
+    /* private mode: we simply lose rollback protection, not correctness */
+  }
+}
+
 export async function fetchVerifierKeys() {
   if (keyCache) return keyCache;
   try {
@@ -81,11 +141,54 @@ export async function fetchVerifierKeys() {
       headers: { Accept: 'application/json' },
       signal: AbortSignal.timeout(10000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      lastKeyFetchFailure = 'unreachable';
+      return null;
+    }
     const body = await res.json();
-    keyCache = body.keys || {};
+    const keys = body.keys || {};
+    const issuedAt = body.issued_at;
+    const sig = body.sig_v2;
+
+    // Only sig_v2 is accepted. v1 covered the key map alone, so every registry
+    // ever served stayed valid for ever and a captured copy could reinstate a
+    // revoked issuer. A server that speaks only v1 is treated as unsigned.
+    if (!sig || !issuedAt) {
+      lastKeyFetchFailure = 'untrusted';
+      return null;
+    }
+
+    const digest = ethers.keccak256(
+      ethers.toUtf8Bytes(canonicalKeyMapAt(issuedAt, keys)));
+    const want = IX_SIGNING_PUBKEY.toLowerCase().replace(/^0x/, '');
+    const signed = candidates(sig).some((c) => {
+      try {
+        return ethers.SigningKey.recoverPublicKey(digest, c)
+          .toLowerCase().replace(/^0x/, '') === want;
+      } catch {
+        return false;
+      }
+    });
+    if (!signed) {
+      lastKeyFetchFailure = 'untrusted';
+      return null;
+    }
+
+    // Never move backwards. An older registry is a rollback whatever this
+    // machine thinks the time is, which is why the comparison is against what
+    // we have already accepted rather than against the clock.
+    const seen = highWaterMark();
+    if (seen && issuedAt < seen) {
+      lastKeyFetchFailure = 'untrusted';
+      return null;
+    }
+    setHighWaterMark(issuedAt);
+
+    lastKeyFetchFailure = null;
+    keyCache = keys;
     return keyCache;
   } catch {
+    lastKeyFetchFailure = 'unreachable';
     return null;
   }
 }
@@ -123,11 +226,16 @@ export async function verifyIssuer(doc) {
 
   const keys = await fetchVerifierKeys();
   if (keys === null) {
+    const untrusted = keyFetchFailure() === 'untrusted';
     return {
-      status: IssuerStatus.ERROR,
+      status: untrusted ? IssuerStatus.INVALID : IssuerStatus.ERROR,
       verifierId,
-      detail: 'The issuer key directory could not be reached, so the signature '
-        + 'has not been checked yet. Reload to try again.',
+      detail: untrusted
+        ? 'The issuer key directory did not carry a valid signature from '
+          + 'Instruxi, so no issuer on it can be trusted. Do not rely on this '
+          + 'credential.'
+        : 'The issuer key directory could not be reached, so the signature '
+          + 'has not been checked yet. Reload to try again.',
     };
   }
   const expected = keys[verifierId];
