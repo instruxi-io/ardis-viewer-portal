@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "selfcheck": "node scripts/envelope-selfcheck.mjs",
-    "check": "node scripts/envelope-selfcheck.mjs && node scripts/issuer-selfcheck.mjs && npm run --silent check:tz && node scripts/no-html-injection.mjs",
+    "check": "node scripts/envelope-selfcheck.mjs && node scripts/issuer-selfcheck.mjs && node scripts/pin-retry-selfcheck.mjs && npm run --silent check:tz && node scripts/no-html-injection.mjs",
     "check:tz": "TZ=Pacific/Kiritimati node scripts/render-selfcheck.mjs && TZ=Asia/Tokyo node scripts/render-selfcheck.mjs && TZ=UTC node scripts/render-selfcheck.mjs && TZ=America/Los_Angeles node scripts/render-selfcheck.mjs && TZ=Pacific/Midway node scripts/render-selfcheck.mjs"
   },
   "dependencies": {

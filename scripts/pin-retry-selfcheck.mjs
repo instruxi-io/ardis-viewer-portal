@@ -101,8 +101,13 @@ input.value = '111 111 111';
 await btn.onclick();
 
 await until('the PIN gate to reopen after a rejected PIN', () => !gate.hidden && err.textContent !== '');
-assert.match(err.textContent, /Incorrect PIN/,
+assert.match(err.textContent, /share code is not right/,
   'the reopened gate must say why the first attempt failed');
+// The app calls these nine digits a share code on every screen that shows
+// them, so the viewer must not call them something else at the one moment the
+// employer is looking for what the holder sent them.
+assert.doesNotMatch(err.textContent, /\bPIN\b/,
+  'the employer-facing copy must not reintroduce "PIN"');
 assert.equal(input.value, '', 'the rejected PIN must be cleared, not left for the viewer to edit');
 assert.ok($('error').hidden, 'a wrong PIN must not land on the dead error screen');
 
@@ -131,7 +136,12 @@ await startFlow(() => json(200, { success: false, message: 'no gate here' }), 'p
 await until('the plaintext share to settle', () => $('error-body').textContent !== '');
 assert.ok($('pin-gate').hidden,
   'a share the server never asked a PIN for must not open the PIN gate');
-assert.deepEqual(calls.map((c) => c.pin), [null, null],
-  'no PIN was issued for this share, so none may be sent');
+// What matters here is that nothing carries a share code, not how many
+// requests the failure path happens to make. Pinning the count to two meant
+// this check failed the moment the flow stopped fetching the display schema
+// after the credential itself had already failed, which is correct behaviour.
+assert.ok(calls.length > 0, 'the share was never requested at all');
+assert.deepEqual(calls.map((c) => c.pin), calls.map(() => null),
+  'no share code was issued for this share, so none may be sent');
 
 console.log('pin-retry selfcheck: all assertions passed');

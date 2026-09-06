@@ -186,7 +186,7 @@ async function main() {
       }
       if (errBody?.error === 'pin_required' || errBody?.error === 'wrong_pin') {
         sharePin = await runPinEntryFlow(errBody.error === 'wrong_pin'
-          ? 'Incorrect PIN. Check the code sent with the link and try again.'
+          ? 'That share code is not right. Check the 9 digits the holder sent you and try again.'
           : null);
         if (!sharePin) return;
         continue;
@@ -614,7 +614,7 @@ function runPinEntryFlow(errMsg) {
     async function submit() {
       clearErr();
       const digits = input.value.replace(/\D/g, '');
-      if (digits.length !== 9) { showErr('Please enter the full 9-digit PIN.'); return; }
+      if (digits.length !== 9) { showErr('Enter all 9 digits of the share code.'); return; }
       gate.classList.add('hidden');
       document.getElementById('loading').classList.remove('hidden');
       resolve(digits);
